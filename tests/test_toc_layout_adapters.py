@@ -54,6 +54,22 @@ def test_manning_chapter_cover_bullets_remain_separate_items():
     assert ParagraphFinder._bullet_list_ranges(rows) == [(0, 0), (1, 1), (2, 2)]
 
 
+def test_manning_inverted_exclamation_bullets_remain_separate_items():
+    rows = [_composition(text, 300.0) for text in ("¡ What reasoning means", "¡ Reviewing pretraining", "¡ Introducing key approaches")]
+    assert ParagraphFinder._bullet_list_ranges(rows) == [(0, 0), (1, 1), (2, 2)]
+
+
+def test_manning_appendix_label_stays_with_its_square_marker_row():
+    rows = [
+        _composition("■ Understanding reasoning models", 300.0),
+        _composition("appendix A", 300.0),
+        _composition("■ References and further reading 305", 300.0),
+        _composition("appendix B", 300.0),
+        _composition("■ Exercise solutions 314", 300.0),
+    ]
+    assert ParagraphFinder._manning_row_ranges(rows) == [(0, 0), (1, 2), (3, 4)]
+
+
 def test_generic_body_list_requires_three_matching_items_and_keeps_wrapped_lines():
     rows = [
         _composition("- First item", 300.0),

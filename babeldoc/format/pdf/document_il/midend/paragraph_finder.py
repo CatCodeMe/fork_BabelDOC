@@ -326,6 +326,7 @@ class ParagraphFinder:
                 or re.search(r"\bcontents\b", page_text) is not None
                 or "this chapter covers" in page_text
             ),
+            page_has_manning_chapter_list="this chapter covers" in page_text,
         )
 
         # 新增后处理：合并带行号交替的正文段落（a 正文、b 行号、c 正文 -> 合并 a 与 c，保留 b）
@@ -935,12 +936,43 @@ class ParagraphFinder:
         starts = [
             index for index, composition in enumerate(compositions)
             if composition.pdf_line
-            and re.match(r"^\s*[■▪•◦]", cls._line_text(composition.pdf_line))
+            and re.match(r"^\s*[■▪•◦¡]", cls._line_text(composition.pdf_line))
         ]
         if len(starts) < 2:
             return []
         return [
             (start, (starts[pos + 1] - 1) if pos + 1 < len(starts) else len(compositions) - 1)
+            for pos, start in enumerate(starts)
+        ]
+
+    @classmethod
+    def _manning_row_ranges(
+        cls, compositions: list[PdfParagraphComposition]
+    ) -> list[tuple[int, int]]:
+        """Keep Manning's detached ``appendix X`` labels with their bullet row."""
+        starts = []
+        for index, composition in enumerate(compositions):
+            if not composition.pdf_line:
+                continue
+            text = cls._line_text(composition.pdf_line)
+            if not re.match(r"^\s*[■▪•◦¡]", text):
+                continue
+            # In the brief contents, the italic appendix label is emitted as a
+            # separate line immediately before its square-marker title.  Make
+            # it part of the same item rather than leaving it to be joined to
+            # every later appendix in one translated paragraph.
+            if index and compositions[index - 1].pdf_line and re.match(
+                r"^\s*appendix\s+[A-Z]\s*$",
+                cls._line_text(compositions[index - 1].pdf_line),
+                re.I,
+            ):
+                starts.append(index - 1)
+            else:
+                starts.append(index)
+        if len(starts) < 2:
+            return []
+        return [
+            (start, starts[pos + 1] - 1 if pos + 1 < len(starts) else len(compositions) - 1)
             for pos, start in enumerate(starts)
         ]
 
@@ -1054,6 +1086,7 @@ class ParagraphFinder:
         paragraphs: list[PdfParagraph],
         page_has_toc_heading: bool = False,
         page_has_manning_structure: bool = False,
+        page_has_manning_chapter_list: bool = False,
     ):
         """Split proven TOC rows while leaving non-TOC prose untouched."""
         profile_name = getattr(self.translation_config, "toc_layout_adapter", "auto")
@@ -1071,13 +1104,19 @@ class ParagraphFinder:
         while index < len(paragraphs):
             paragraph = paragraphs[index]
             compositions = paragraph.pdf_paragraph_composition or []
-            if profile_name in ("oreilly", "manning"):
+            # O'Reilly sometimes encodes several visual rows in one tall line.
+            # Manning already exposes normal source lines; applying visual-row
+            # recovery there can reorder glyphs whose vertical bboxes overlap
+            # (for example, it turns the final "g" in ordinary words into a
+            # separate leading fragment).  Its bullet/contents recognizers
+            # below therefore operate on the original line order.
+            if profile_name == "oreilly":
                 compositions = self._recover_visually_stacked_lines(compositions)
             individual_rows = False
             if profile_name == "oreilly" and page_has_toc_heading:
                 row_ranges = self._oreilly_toc_row_ranges(compositions, adapter)
             elif profile_name == "manning" and page_has_manning_structure:
-                row_ranges = self._bullet_list_ranges(compositions) or self._oreilly_toc_row_ranges(compositions, adapter)
+                row_ranges = self._manning_row_ranges(compositions) or self._oreilly_toc_row_ranges(compositions, adapter)
             else:
                 # The default is intentionally source-agnostic: numbered rows
                 # with aligned terminal page labels are TOC entries; explicit
@@ -1100,7 +1139,20 @@ class ParagraphFinder:
                 else row_ranges
             )
             marked_rows = {row_index for start, end in item_ranges for row_index in range(start, end + 1)}
-            structure_label = "toc" if individual_rows or profile_name in ("oreilly", "manning") else "list_item"
+            if profile_name == "manning":
+                # Manning uses the same small square marker for the book TOC
+                # and the shorter "This chapter covers" list.  Keep both
+                # structural, but expose distinct labels so typesetting can
+                # give its unusually dense contents rows more vertical room.
+                structure_label = (
+                    "manning_list_item"
+                    if page_has_manning_chapter_list
+                    else "manning_toc"
+                )
+            elif individual_rows or profile_name == "oreilly":
+                structure_label = "toc"
+            else:
+                structure_label = "list_item"
             replacements: list[PdfParagraph] = []
             pending: list[PdfParagraphComposition] = []
             items_by_start = {start: end for start, end in item_ranges}

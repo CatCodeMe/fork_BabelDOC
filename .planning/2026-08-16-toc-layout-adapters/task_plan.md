@@ -13,7 +13,7 @@ Repair collapsed table-of-contents entries in translated PDFs, beginning with th
 5. [complete] Document use, limitations, and follow-up publisher profiles.
 6. [in_progress] Audit all saved translation trackers and turn the repair into a layered structural-recovery policy.
 7. [complete] Correct grouped multi-line item handling; add conservative generic ordered/unordered list recovery.
-8. [pending] Validate exact O'Reilly and Manning source/list pages, then regenerate only affected first chunks.
+8. [complete] Validate exact O'Reilly and Manning source/list pages, then regenerate only affected first chunks.
 9. [pending] Add navigation provenance and a safe merge selection mechanism for verified repaired chunks.
 10. [complete] Add rendered-geometry overlap detection and structural-row typography fallback.
 
@@ -30,3 +30,5 @@ Repair collapsed table-of-contents entries in translated PDFs, beginning with th
 - `references/local-workflow.md` is absent from this checkout although referenced by the translation skill; continued using the repository source and existing job artifacts.
 - `pdftotext` is not installed; used PyMuPDF text extraction for source/output comparison.
 - A first attempt to clear temporary test directories with `rm -rf` was blocked by the execution policy; used fresh uniquely named test directories instead.
+- Manning exposes ordinary source lines, unlike O'Reilly's tightly stacked rows. Applying the O'Reilly visual-row recovery to Manning reordered overlapping glyph boxes and injected spurious letter fragments, so its profile now uses original source order.
+- Manning's brief contents emits `appendix A` as a separate line immediately before the square-marker title; profile-specific grouping keeps those two source lines in one item.
