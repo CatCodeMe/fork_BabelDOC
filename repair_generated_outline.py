@@ -17,7 +17,7 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
     pdf = fitz.open(args.dual)
-    toc, seen = [], set()
+    toc, seen, chapters = [], set(), set()
     for page_number, page in enumerate(pdf, start=1):
         midpoint = page.rect.width / 2
         for block in page.get_text("dict")["blocks"]:
@@ -33,6 +33,10 @@ def main() -> None:
                 if number in seen:
                     continue
                 seen.add(number)
+                chapter = number.split(".", 1)[0]
+                if chapter not in chapters:
+                    chapters.add(chapter)
+                    toc.append([1, f"第 {chapter} 章", page_number])
                 toc.append([number.count(".") + 1, text, page_number])
     pdf.set_toc(toc)
     args.output.parent.mkdir(parents=True, exist_ok=True)
