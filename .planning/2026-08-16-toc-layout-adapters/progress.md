@@ -15,3 +15,4 @@
 - Reprocessed only `Build_a_Reasoning_Model_From_Scratch_Sebastian_Raschka_` chunk 1 (pages 1-50) using the validated `manning` adapter.
 - Added profile-specific row labels/type caps, inverted-exclamation bullet handling, detached appendix-label grouping, and a regression test suite now containing 8 passing tests.
 - v5 output: `output/chunks/Build_a_Reasoning_Model_From_Scratch_Sebastian_Raschka_/chunk-1-pages-1-50-manning-repaired-v5/chunk-001-pages-1-50.no_watermark.zh-CN.dual.pdf`.
+- Merged the repaired first chunk with the existing chunks 2-9. The final navigable dual PDF retains 123 bookmarks and 657 internal links; physical brief-contents page 8 has 22 destinations and formal-contents page 10 has 18.
