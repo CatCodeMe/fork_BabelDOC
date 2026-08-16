@@ -1149,7 +1149,9 @@ class ParagraphFinder:
                     if page_has_manning_chapter_list
                     else "manning_toc"
                 )
-            elif individual_rows or profile_name == "oreilly":
+            elif profile_name == "oreilly":
+                structure_label = "oreilly_toc"
+            elif individual_rows:
                 structure_label = "toc"
             else:
                 structure_label = "list_item"

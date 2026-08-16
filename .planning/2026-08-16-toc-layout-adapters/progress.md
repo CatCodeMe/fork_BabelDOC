@@ -16,3 +16,11 @@
 - Added profile-specific row labels/type caps, inverted-exclamation bullet handling, detached appendix-label grouping, and a regression test suite now containing 8 passing tests.
 - v5 output: `output/chunks/Build_a_Reasoning_Model_From_Scratch_Sebastian_Raschka_/chunk-1-pages-1-50-manning-repaired-v5/chunk-001-pages-1-50.no_watermark.zh-CN.dual.pdf`.
 - Merged the repaired first chunk with the existing chunks 2-9. The final navigable dual PDF retains 123 bookmarks and 657 internal links; physical brief-contents page 8 has 22 destinations and formal-contents page 10 has 18.
+
+# 2026-08-16 corpus audit
+
+- Began a read-only audit of all existing `output/chunks` translations (seven book roots, 90 dual chunks). The structure audit script takes its output path as a positional argument; an initial `--output` invocation failed before it created any report or changed a PDF.
+- Added `tools/audit_chunk_contents.py`, which selects one current deliverable per book and reports rendered right-half overlaps only on detected continuous contents pages. Initial audit: O'Reilly 59, Manning 1 decoration false positive, all other current books 0.
+- O'Reilly v9 at a 0.70 profile-specific cap reduced the contents-page collision count to 53, but rendered page 19 still has adjacent long-row contact; starting a stricter 0.55-only retry.
+- O'Reilly v10 at 0.55 reduced its 13 contents pages to 7 residual geometry hits. Rendered page 19 is readable with no adjacent long-row cover-up. Rebuilt the 1061-page merged/navigable dual PDF with only this first chunk replaced; it retains 486 bookmarks and 972 clickable internal links.
+- Final canonical-PDF audit: zero contents collisions for Mathematics, B-tree, 2023 Data Structures, Inference Engineering, and graph-engineering; Manning 1 known chapter-decoration false positive; O'Reilly 7 residual hits to monitor, visually acceptable at the verified sample page.

@@ -852,6 +852,10 @@ class Typesetting:
     structural_row_scale_caps = {
         "toc": 0.82,
         "list_item": 0.82,
+        # O'Reilly's multi-page contents uses particularly tight Latin source
+        # baselines.  The separate cap avoids reducing ordinary TOCs solely to
+        # accommodate this publisher's dense continuation pages.
+        "oreilly_toc": 0.55,
         # Manning's contents rows are set closer together than ordinary body
         # lists.  Its Chinese translation needs a more conservative cap to
         # avoid glyphs colliding with the next source baseline.

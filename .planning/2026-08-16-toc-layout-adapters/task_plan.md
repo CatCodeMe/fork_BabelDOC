@@ -11,7 +11,7 @@ Repair collapsed table-of-contents entries in translated PDFs, beginning with th
 3. [complete] Add focused unit tests and run regression tests.
 4. [complete] Regenerate the affected first chunk and visually verify its contents pages.
 5. [complete] Document use, limitations, and follow-up publisher profiles.
-6. [in_progress] Audit all saved translation trackers and turn the repair into a layered structural-recovery policy.
+6. [complete] Audit all current deliverable PDFs and turn the repair into a layered structural-recovery policy.
 7. [complete] Correct grouped multi-line item handling; add conservative generic ordered/unordered list recovery.
 8. [complete] Validate exact O'Reilly and Manning source/list pages, then regenerate only affected first chunks.
 9. [pending] Add navigation provenance and a safe merge selection mechanism for verified repaired chunks.

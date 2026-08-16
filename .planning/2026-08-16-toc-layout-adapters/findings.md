@@ -12,3 +12,8 @@
 - The first 50-page chunk contains the brief contents (physical page 8), formal contents (pages 10-14), and two `This chapter covers` cards (including page 26).
 - `manning_toc` receives a 0.68 type scale cap and `manning_list_item` 0.78. On the repaired v5 chunk, the right-half overlap scanner reports only two non-directory decoration cases (page number and chapter numeral), versus 19 directory collisions in v2.
 - The v5 rendered brief/formal contents and chapter-card list have distinct translated items and no bogus `g`/`p` glyph fragments. The brief-contents appendix source has detached labels and still retains the publisher's tight two-column visual placement as a known layout limitation.
+
+# Current corpus audit, 2026-08-16
+
+- Canonical-output audit covers seven book roots (navigable merged PDF preferred, then merged, then original chunk 1).  Five books have no rendered directory-line collisions; Manning has one chapter-decoration false positive; O'Reilly's 13 continuous contents pages have a real dense-row issue.
+- O'Reilly's first publisher-specific cap trial, 0.70, reduced collision count from 59 to 53 but did not prevent adjacent long translated rows from touching. The next validated trial uses 0.55 for `oreilly_toc` only; no generic or other publisher policy changes.
