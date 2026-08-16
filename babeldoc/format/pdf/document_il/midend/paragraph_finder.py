@@ -1006,7 +1006,11 @@ class ParagraphFinder:
             chars = line.pdf_character
             heights = [char.visual_bbox.box.y2 - char.visual_bbox.box.y for char in chars]
             median_height = float(np.median(heights)) if heights else 0.0
-            if median_height <= 0 or line.box.y2 - line.box.y < median_height * 2.5:
+            # A two-row contents entry can be only a little over twice the
+            # glyph height because adjacent baselines overlap. The distinct
+            # baseline requirement below is the safety guard; this threshold
+            # must therefore admit two tightly packed visual rows.
+            if median_height <= 0 or line.box.y2 - line.box.y < median_height * 1.6:
                 recovered.append(composition)
                 continue
             tolerance = max(2.0, median_height * 0.35)
