@@ -59,7 +59,9 @@ BABELDOC_PARALLEL=3 \
 ./translate-chunks.zsh parallel "/absolute/path/to/english-book.pdf"
 ```
 
-After all chunks finish, run the same environment variables with `merge`.
+When all chunks succeed, `parallel` automatically merges them, repairs the
+original-side navigation, and stages the final dual PDF outside the transient
+chunk tree. `merge` remains available after a targeted `one` retry.
 
 ## Recommended large-book route: local 50-page chunks
 
@@ -74,6 +76,13 @@ It creates at most 50-page PDFs under `work/input-chunks/`, then translates
 them sequentially with one worker and one request per second. If one chunk
 fails or the Mac sleeps, rerun exactly the same command: completed chunks are
 detected and skipped. Each chunk has its own output folder and `run.log`.
+
+Successful `run`, `parallel`, and `all` commands create a stable, incrementing
+handoff directory at `output/final/<queue-id>--<book>/`. It contains the
+Zotero-ready `<book>.zh-CN.dual.navigable.pdf` and `handoff.json` with page,
+TOC, and link evidence. `output/chunks/` remains resumable working state and
+can be removed only after the handoff has been reviewed and imported. Set
+`BABELDOC_FINAL_ROOT` to change the final staging location.
 
 ## Full translation
 
