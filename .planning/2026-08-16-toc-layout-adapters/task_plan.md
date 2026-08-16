@@ -9,7 +9,7 @@ Repair collapsed table-of-contents entries in translated PDFs, beginning with th
 1. [complete] Reproduce and locate the collapse before translation.
 2. [complete] Add generic TOC row segmentation and adapter registry.
 3. [complete] Add focused unit tests and run regression tests.
-4. [in_progress] Regenerate the affected first chunk and visually verify its contents pages.
+4. [complete] Regenerate the affected first chunk and visually verify its contents pages.
 5. [complete] Document use, limitations, and follow-up publisher profiles.
 
 ## Guardrails
