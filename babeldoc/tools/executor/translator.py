@@ -156,9 +156,9 @@ class ExecutorTranslator(BaseTranslator):
 
     def get_rich_text_left_placeholder(self, placeholder_id: int | str):
         return (
-            f"<style id='{placeholder_id}'>",
-            f"<\\s*style\\s*id\\s*=\\s*'\\s*{placeholder_id}\\s*'\\s*>",
+            f"{{{{bdoc_style_{placeholder_id}}}}}",
+            f"\\{{\\{{\\s*bdoc_style_{placeholder_id}\\s*\\}}\\}}",
         )
 
     def get_rich_text_right_placeholder(self, placeholder_id: int | str):
-        return "</style>", r"<\s*\/\s*style\s*>"
+        return "{{/bdoc_style}}", r"\{\{\s*/\s*bdoc_style\s*\}\}"

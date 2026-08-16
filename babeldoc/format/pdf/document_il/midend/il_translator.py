@@ -53,8 +53,9 @@ PROMPT_TEMPLATE = Template(
 ## Rules
 
 1. Keep the structure exactly unchanged: do NOT add/remove/reorder any tags, placeholders, or tokens.
-2. Keep all tags unchanged (e.g., <style>, <b>, </style>).
-   - Translate human-readable text inside tags.
+2. Keep opaque formatting tokens unchanged (e.g., {{bdoc_style_1}}, {{/bdoc_style}}).
+   - Copy them byte-for-byte: never translate, rename, explain, or delete them.
+   - Translate human-readable text between the tokens.
    - Do NOT translate text inside <code>…</code>.
 3. Do NOT translate or alter placeholders: {v1}, {name}, %s, %d, [[...]], %%...%%.
 4. If the entire input is pure code/identifiers, return it unchanged.
@@ -820,16 +821,12 @@ class ILTranslator:
         # 合并所有模式
         combined_pattern = "|".join(patterns)
         combined_placeholder_pattern = "|".join(placeholder_patterns)
-        # Build allowed placeholder tokens: originals from source + placeholders we injected.
+        # Preserve only placeholder-like text that was already in the source.
+        # Injected markers must never reach the output as visible text when an
+        # LLM drops or damages their matching counterpart.
         allowed_placeholder_tokens: set[str] = set()
         if getattr(input_text, "original_placeholder_tokens", None):
             allowed_placeholder_tokens.update(input_text.original_placeholder_tokens)
-        for placeholder in input_text.placeholders:
-            if isinstance(placeholder, FormulaPlaceholder):
-                allowed_placeholder_tokens.add(placeholder.placeholder)
-            else:
-                allowed_placeholder_tokens.add(placeholder.left_placeholder)
-                allowed_placeholder_tokens.add(placeholder.right_placeholder)
 
         def remove_placeholder(text: str):
             """Remove placeholder artifacts and hallucinated placeholder-like tokens."""

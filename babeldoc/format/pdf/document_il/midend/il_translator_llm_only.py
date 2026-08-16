@@ -51,7 +51,9 @@ PROMPT_TEMPLATE = Template(
 4. Translate ALL human-readable content into $lang_out.
 
 ## Do NOT Modify
-- Tags (e.g., <style>, <b>, <code>): keep them exactly the same.  
+- Opaque formatting tokens such as `{{bdoc_style_1}}` and `{{/bdoc_style}}`:
+  copy them byte-for-byte. Never translate, rename, explain, or delete them.
+- HTML-like tags (e.g., <b>, <code>): keep the markup exactly unchanged.
   *Translate tag-internal text except code blocks (<code>…</code>)*.
 - Placeholders: `{v1}`, `{name}`, `%s`, `%d`, `[[...]]`, `%%...%%` — keep exactly unchanged.
 - JSON keys or structure.
@@ -73,7 +75,7 @@ Input:
 [
     {
     "id": 0,
-    "input": "{v1}<style id='2'>hello</style>, world!",
+    "input": "{v1}{{bdoc_style_2}}hello{{/bdoc_style}}, world!",
     "layout_label": "text"
     }
 ]
@@ -81,7 +83,7 @@ Output:
 [
     {
     "id": 0,
-    "output": "{v1}<style id='2'>你好</style>，世界！"
+    "output": "{v1}{{bdoc_style_2}}你好{{/bdoc_style}}，世界！"
     }
 ]
 

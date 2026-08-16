@@ -1,0 +1,37 @@
+source,target,tgt_lng
+ex4_why_tables_won.py,ex4_why_tables_won.py,zh-CN
+python3,python3,zh-CN
+GraphRAG,GraphRAG,zh-CN
+트랜스포머,Transformer,zh-CN
+Transformer,Transformer,zh-CN
+그래프,graph,zh-CN
+지식 그래프,knowledge graph,zh-CN
+에이전트,agent,zh-CN
+노드,node,zh-CN
+엣지,edge,zh-CN
+트랜잭션,transaction,zh-CN
+상태,state,zh-CN
+제약,constraint,zh-CN
+테이블,table,zh-CN
+조인,join,zh-CN
+외래 키,foreign key,zh-CN
+리듀서,reducer,zh-CN
+슈퍼스텝,superstep,zh-CN
+백본,backbone,zh-CN
+이벤트 소싱,event sourcing,zh-CN
+동시성 제어,concurrency control,zh-CN
+ISO,ISO,zh-CN
+W3C,W3C,zh-CN
+RDF,RDF,zh-CN
+OWL,OWL,zh-CN
+SHACL,SHACL,zh-CN
+COMMIT,COMMIT,zh-CN
+ROLLBACK,ROLLBACK,zh-CN
+FOREIGN KEY,FOREIGN KEY,zh-CN
+CHECK,CHECK,zh-CN
+company_id,company_id,zh-CN
+contract_id,contract_id,zh-CN
+paid_at,paid_at,zh-CN
+amount,amount,zh-CN
+grade,grade,zh-CN
+id,id,zh-CN
