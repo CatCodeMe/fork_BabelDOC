@@ -37,3 +37,18 @@ def test_body_lines_and_misaligned_numbers_are_not_treated_as_contents():
 def test_numbered_row_requires_a_terminal_page_number():
     assert not ParagraphFinder._is_numbered_toc_row("3.1 Node Size")
     assert ParagraphFinder._is_numbered_toc_row("3.1 Node Size 232")
+
+
+def test_oreilly_rows_keep_wrapped_titles_with_their_page_number():
+    rows = [
+        _composition("DeepSeek Scales to 680-Billion Parameter Models", 381.0),
+        _composition("Despite Hardware Restrictions in China 9", 432.0),
+        _composition("Toward 100-Trillion-Parameter Models 11", 432.0),
+        _composition("Key Takeaways 20", 432.0),
+    ]
+    assert ParagraphFinder._oreilly_toc_row_ranges(rows, TocLayoutAdapter("oreilly")) == [(0, 1), (2, 2), (3, 3)]
+
+
+def test_manning_chapter_cover_bullets_remain_separate_items():
+    rows = [_composition(text, 300.0) for text in ("■ What reasoning means", "■ Reviewing pretraining", "■ Introducing key approaches")]
+    assert ParagraphFinder._bullet_list_ranges(rows) == [(0, 0), (1, 1), (2, 2)]

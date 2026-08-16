@@ -182,7 +182,7 @@ def create_parser():
     )
     translation_group.add_argument(
         "--toc-layout-adapter",
-        choices=("auto", "generic", "now-publishers", "off"),
+        choices=("auto", "generic", "now-publishers", "oreilly", "manning", "off"),
         default="auto",
         help="Recover numbered table-of-contents rows before translation; use a named publisher profile only when needed.",
     )

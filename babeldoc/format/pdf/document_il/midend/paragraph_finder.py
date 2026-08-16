@@ -66,6 +66,8 @@ TOC_LAYOUT_ADAPTERS = {
     # It currently shares the generic rule; the named profile is the stable place
     # for source-specific tuning if a future NOW variant needs it.
     "now-publishers": TocLayoutAdapter("now-publishers"),
+    "oreilly": TocLayoutAdapter("oreilly"),
+    "manning": TocLayoutAdapter("manning"),
 }
 
 
@@ -315,7 +317,16 @@ class ParagraphFinder:
         # Some publishers put an entire table of contents in one detected text
         # region.  Keep its source rows as independent translation units before
         # the translator converts the paragraph into a single Chinese run.
-        self.split_table_of_contents_rows(paragraphs)
+        page_text = "\n".join(self._paragraph_text_ascii(p) for p in paragraphs).lower()
+        self.split_table_of_contents_rows(
+            paragraphs,
+            page_has_toc_heading="table of contents" in page_text,
+            page_has_manning_structure=(
+                "brief contents" in page_text
+                or re.search(r"\bcontents\b", page_text) is not None
+                or "this chapter covers" in page_text
+            ),
+        )
 
         # 新增后处理：合并带行号交替的正文段落（a 正文、b 行号、c 正文 -> 合并 a 与 c，保留 b）
         if getattr(self.translation_config, "merge_alternating_line_numbers", True):
@@ -897,6 +908,42 @@ class ParagraphFinder:
             run_start = run_end
         return ranges
 
+    @classmethod
+    def _oreilly_toc_row_ranges(
+        cls, compositions: list[PdfParagraphComposition], adapter: TocLayoutAdapter
+    ) -> list[tuple[int, int]]:
+        """Group O'Reilly title lines until their aligned Arabic/Roman page label."""
+        terminals = []
+        for index, composition in enumerate(compositions):
+            if not composition.pdf_line:
+                continue
+            text = cls._line_text(composition.pdf_line)
+            if re.search(r"\s(?:\d{1,4}|[ivxlcdm]{1,8})\s*$", text, re.I):
+                terminals.append((index, composition.pdf_line.box.x2))
+        if len(terminals) < 2:
+            return []
+        ranges, start = [], 0
+        for end, _ in terminals:
+            ranges.append((start, end))
+            start = end + 1
+        return ranges
+
+    @classmethod
+    def _bullet_list_ranges(
+        cls, compositions: list[PdfParagraphComposition]
+    ) -> list[tuple[int, int]]:
+        starts = [
+            index for index, composition in enumerate(compositions)
+            if composition.pdf_line
+            and re.match(r"^\s*[■▪•◦]", cls._line_text(composition.pdf_line))
+        ]
+        if len(starts) < 2:
+            return []
+        return [
+            (start, (starts[pos + 1] - 1) if pos + 1 < len(starts) else len(compositions) - 1)
+            for pos, start in enumerate(starts)
+        ]
+
     def _new_paragraph_from_compositions(
         self, source: PdfParagraph, compositions: list[PdfParagraphComposition]
     ) -> PdfParagraph:
@@ -911,7 +958,12 @@ class ParagraphFinder:
         self.update_paragraph_data(paragraph, update_unicode=True)
         return paragraph
 
-    def split_table_of_contents_rows(self, paragraphs: list[PdfParagraph]):
+    def split_table_of_contents_rows(
+        self,
+        paragraphs: list[PdfParagraph],
+        page_has_toc_heading: bool = False,
+        page_has_manning_structure: bool = False,
+    ):
         """Split proven TOC rows while leaving non-TOC prose untouched."""
         profile_name = getattr(self.translation_config, "toc_layout_adapter", "auto")
         if profile_name in (None, "off"):
@@ -928,7 +980,12 @@ class ParagraphFinder:
         while index < len(paragraphs):
             paragraph = paragraphs[index]
             compositions = paragraph.pdf_paragraph_composition or []
-            row_ranges = self._toc_row_ranges(compositions, adapter)
+            if profile_name == "oreilly" and page_has_toc_heading:
+                row_ranges = self._oreilly_toc_row_ranges(compositions, adapter)
+            elif profile_name == "manning" and page_has_manning_structure:
+                row_ranges = self._bullet_list_ranges(compositions) or self._oreilly_toc_row_ranges(compositions, adapter)
+            else:
+                row_ranges = self._toc_row_ranges(compositions, adapter)
             if not row_ranges:
                 index += 1
                 continue
