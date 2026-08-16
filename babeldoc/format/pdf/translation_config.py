@@ -217,6 +217,7 @@ class TranslationConfig:
         metadata_extra_data: str | None = None,
         term_pool_max_workers: int | None = None,
         disable_same_text_fallback: bool = False,
+        toc_layout_adapter: str = "auto",
     ):
         self.translator = translator
         self.term_extraction_translator = term_extraction_translator or translator
@@ -253,6 +254,7 @@ class TranslationConfig:
             else self.pool_max_workers
         )
         self.split_short_lines = split_short_lines
+        self.toc_layout_adapter = toc_layout_adapter
 
         self.short_line_split_factor = short_line_split_factor
         self.use_rich_pbar = use_rich_pbar

@@ -181,6 +181,12 @@ def create_parser():
         help="Force split short lines into different paragraphs (may cause poor typesetting & bugs)",
     )
     translation_group.add_argument(
+        "--toc-layout-adapter",
+        choices=("auto", "generic", "now-publishers", "off"),
+        default="auto",
+        help="Recover numbered table-of-contents rows before translation; use a named publisher profile only when needed.",
+    )
+    translation_group.add_argument(
         "--short-line-split-factor",
         type=float,
         default=0.8,
@@ -700,6 +706,7 @@ async def main():
             formular_font_pattern=args.formular_font_pattern,
             formular_char_pattern=args.formular_char_pattern,
             split_short_lines=args.split_short_lines,
+            toc_layout_adapter=args.toc_layout_adapter,
             short_line_split_factor=args.short_line_split_factor,
             doc_layout_model=doc_layout_model,
             skip_clean=args.skip_clean,

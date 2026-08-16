@@ -1,6 +1,7 @@
 import logging
 import random
 import re
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -41,6 +42,31 @@ logger = logging.getLogger(__name__)
 
 # Base58 alphabet (Bitcoin style, without numbers 0, O, I, l)
 BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+@dataclass(frozen=True)
+class TocLayoutAdapter:
+    """A conservative policy for recovering individual TOC rows.
+
+    PDF layout models frequently label an entire contents column as one text region.
+    The generic policy works from the rows retained inside that region.  Named
+    policies are deliberately data-only tuning points: future publisher profiles
+    can be added without embedding a file name or page-coordinate map here.
+    """
+
+    name: str
+    min_consecutive_rows: int = 2
+    terminal_page_alignment_tolerance: float = 12.0
+
+
+TOC_LAYOUT_ADAPTERS = {
+    "auto": TocLayoutAdapter("auto"),
+    "generic": TocLayoutAdapter("generic"),
+    # NOW Publishers uses numbered section rows with a right-aligned page number.
+    # It currently shares the generic rule; the named profile is the stable place
+    # for source-specific tuning if a future NOW variant needs it.
+    "now-publishers": TocLayoutAdapter("now-publishers"),
+}
 
 
 def generate_base58_id(length: int = 5) -> str:
@@ -285,6 +311,11 @@ class ParagraphFinder:
 
         # 第五步：处理独立段落
         self.process_independent_paragraphs(paragraphs, median_width)
+
+        # Some publishers put an entire table of contents in one detected text
+        # region.  Keep its source rows as independent translation units before
+        # the translator converts the paragraph into a single Chinese run.
+        self.split_table_of_contents_rows(paragraphs)
 
         # 新增后处理：合并带行号交替的正文段落（a 正文、b 行号、c 正文 -> 合并 a 与 c，保留 b）
         if getattr(self.translation_config, "merge_alternating_line_numbers", True):
@@ -818,6 +849,116 @@ class ParagraphFinder:
         line = PdfLine(pdf_character=chars)
         self.update_line_data(line)
         return PdfParagraphComposition(pdf_line=line)
+
+    @staticmethod
+    def _line_text(line: PdfLine) -> str:
+        return "".join(char.char_unicode or "" for char in line.pdf_character)
+
+    @staticmethod
+    def _is_numbered_toc_row(text: str) -> bool:
+        """Recognize a numbered TOC row without relying on a publisher name.
+
+        Require both a hierarchical section prefix and a terminal page number.
+        That prevents normal prose lines ending in a citation/year from becoming
+        separate translation units.
+        """
+        return bool(
+            re.match(r"^\s*\d+(?:\.\d+)*\.?\s+\S", text)
+            and re.search(r"\s\d{1,4}\s*$", text)
+        )
+
+    @classmethod
+    def _toc_row_ranges(
+        cls, compositions: list[PdfParagraphComposition], adapter: TocLayoutAdapter
+    ) -> list[tuple[int, int]]:
+        """Return runs of aligned numbered TOC rows in a paragraph."""
+        candidates: list[tuple[int, float]] = []
+        for index, composition in enumerate(compositions):
+            if not composition.pdf_line:
+                continue
+            line = composition.pdf_line
+            if cls._is_numbered_toc_row(cls._line_text(line)):
+                candidates.append((index, line.box.x2))
+
+        ranges: list[tuple[int, int]] = []
+        run_start = 0
+        while run_start < len(candidates):
+            run_end = run_start + 1
+            anchor_x2 = candidates[run_start][1]
+            while (
+                run_end < len(candidates)
+                and candidates[run_end][0] == candidates[run_end - 1][0] + 1
+                and abs(candidates[run_end][1] - anchor_x2)
+                <= adapter.terminal_page_alignment_tolerance
+            ):
+                run_end += 1
+            if run_end - run_start >= adapter.min_consecutive_rows:
+                ranges.append((candidates[run_start][0], candidates[run_end - 1][0]))
+            run_start = run_end
+        return ranges
+
+    def _new_paragraph_from_compositions(
+        self, source: PdfParagraph, compositions: list[PdfParagraphComposition]
+    ) -> PdfParagraph:
+        paragraph = PdfParagraph(
+            box=Box(0, 0, 0, 0),
+            pdf_paragraph_composition=compositions,
+            unicode="",
+            debug_id=generate_base58_id(),
+            layout_label=source.layout_label,
+            layout_id=source.layout_id,
+        )
+        self.update_paragraph_data(paragraph, update_unicode=True)
+        return paragraph
+
+    def split_table_of_contents_rows(self, paragraphs: list[PdfParagraph]):
+        """Split proven TOC rows while leaving non-TOC prose untouched."""
+        profile_name = getattr(self.translation_config, "toc_layout_adapter", "auto")
+        if profile_name in (None, "off"):
+            return
+        adapter = TOC_LAYOUT_ADAPTERS.get(profile_name)
+        if adapter is None:
+            logger.warning(
+                "Unknown TOC layout adapter %r; using the generic detector.",
+                profile_name,
+            )
+            adapter = TOC_LAYOUT_ADAPTERS["generic"]
+
+        index = 0
+        while index < len(paragraphs):
+            paragraph = paragraphs[index]
+            compositions = paragraph.pdf_paragraph_composition or []
+            row_ranges = self._toc_row_ranges(compositions, adapter)
+            if not row_ranges:
+                index += 1
+                continue
+
+            marked_rows = {
+                row_index
+                for start, end in row_ranges
+                for row_index in range(start, end + 1)
+            }
+            replacements: list[PdfParagraph] = []
+            pending: list[PdfParagraphComposition] = []
+            for row_index, composition in enumerate(compositions):
+                if row_index in marked_rows:
+                    if pending:
+                        replacements.append(
+                            self._new_paragraph_from_compositions(paragraph, pending)
+                        )
+                        pending = []
+                    replacements.append(
+                        self._new_paragraph_from_compositions(paragraph, [composition])
+                    )
+                else:
+                    pending.append(composition)
+            if pending:
+                replacements.append(
+                    self._new_paragraph_from_compositions(paragraph, pending)
+                )
+
+            paragraphs[index : index + 1] = replacements
+            index += len(replacements)
 
     def calculate_median_line_width(self, paragraphs: list[PdfParagraph]) -> float:
         # 收集所有行的宽度
