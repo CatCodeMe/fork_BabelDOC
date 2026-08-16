@@ -845,6 +845,11 @@ class TypesettingUnit:
 
 class Typesetting:
     stage_name = "Typesetting"
+    # Structural rows are intentionally independent translation units, but the
+    # source PDF often allocates only a single Latin baseline per row.  Chinese
+    # glyph metrics need more vertical clearance; leave a small, predictable
+    # margin rather than letting adjacent TOC/list rows touch after rendering.
+    structural_row_scale_cap = 0.82
 
     def __init__(self, translation_config: TranslationConfig):
         self.font_mapper = FontMapper(translation_config)
@@ -933,6 +938,13 @@ class Typesetting:
                     and paragraph.optimal_scale > mode_scale
                 ):
                     paragraph.optimal_scale = mode_scale
+                if (
+                    paragraph.layout_label in ("toc", "list_item")
+                    and paragraph.optimal_scale is not None
+                ):
+                    paragraph.optimal_scale = min(
+                        paragraph.optimal_scale, self.structural_row_scale_cap
+                    )
         else:
             logger.error(
                 "document_scales is empty, there seems no paragraph in this PDF"

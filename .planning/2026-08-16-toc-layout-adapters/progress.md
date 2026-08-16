@@ -9,3 +9,4 @@
 - 2026-08-16: Added a read-only tracker corpus audit tool covering all saved `work/chunks/**/translate_tracking.json` files.
 - 2026-08-16: Fixed the adapter implementation so wrapped O'Reilly and Manning entries remain one translation unit rather than being re-split line-by-line; added a conservative automatic list splitter for proved three-item lists.
 - 2026-08-16: Recovered vertically stacked rows that the full-page layout model had collapsed into one oversized PDF line. Full 50-page O'Reilly retranslation now preserves one Chinese row per TOC entry when rendered.
+- 2026-08-16: Added a final-PDF line-overlap detector and an 82% scale cap for structural TOC/list rows. On the O'Reilly contents page, detected right-side overlaps decreased from 17 to 3; the remaining hits include page-footer glyphs.

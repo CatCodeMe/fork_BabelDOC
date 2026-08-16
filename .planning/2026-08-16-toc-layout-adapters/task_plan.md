@@ -15,6 +15,7 @@ Repair collapsed table-of-contents entries in translated PDFs, beginning with th
 7. [complete] Correct grouped multi-line item handling; add conservative generic ordered/unordered list recovery.
 8. [pending] Validate exact O'Reilly and Manning source/list pages, then regenerate only affected first chunks.
 9. [pending] Add navigation provenance and a safe merge selection mechanism for verified repaired chunks.
+10. [complete] Add rendered-geometry overlap detection and structural-row typography fallback.
 
 ## Guardrails
 
