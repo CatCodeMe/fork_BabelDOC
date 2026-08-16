@@ -26,6 +26,8 @@ Main processing stages in order of actual execution and corresponding documentat
 
 8. [PDFCreation.md](PDFCreation/PDFCreation.md): **PDF Generation**
 
+9. [LocalBilingualPDFWorkflow.md](LocalBilingualPDFWorkflow.md): **Local Bilingual PDF Delivery and Compatibility Workflow**
+
 ## API
 
 1. [Async Translation API](AsyncTranslate/AsyncTranslate.md): **Async Translation API**

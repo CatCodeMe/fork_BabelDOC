@@ -1,0 +1,41 @@
+[babeldoc]
+# Copy this file to babeldoc.ko-zh.toml and replace the placeholder locally.
+# The real config filename is excluded from Git.
+lang-in = "ko"
+lang-out = "zh-CN"
+
+# Start conservatively for a large book.
+qps = 1
+pool-max-workers = 1
+max-pages-per-part = 50
+
+# Keep bilingual and Chinese-only final PDFs.
+no-dual = false
+no-mono = false
+watermark-output-mode = "both"
+
+openai = true
+openai-model = "deepseek-v4-flash"
+openai-base-url = "https://api.deepseek.com/v1"
+openai-api-key = "PASTE_YOUR_DEEPSEEK_API_KEY_HERE"
+openai-thinking = "disabled"
+
+# Translate prose into Chinese, preserve code exactly, and prefer standard
+# English forms for named technical terms listed in the glossary.
+custom-system-prompt = """
+You are a professional zh-CN native technical-book translator. Translate natural-language Korean prose fluently into Simplified Chinese.
+
+Strict preservation rules:
+- Never translate, rewrite, localize, split, or alter filenames (including extensions), file paths, URLs, shell commands, command arguments, code snippets, programming identifiers, snake_case, camelCase, PascalCase, API names, database/schema field names, SQL keywords, or version strings.
+- Preserve their spelling, capitalization, punctuation, underscores, hyphens, dots, slashes, and order exactly. If a paragraph mixes prose and code, translate only the prose around the code.
+- A line consisting only of code or a command must be returned unchanged.
+- The supplied glossary is authoritative: use its target exactly. For an entry whose target equals its source, preserve it unchanged.
+- In this computer-science book, render established technical concepts, frameworks, standards, and model architectures in their conventional English form. For example, translate 트랜스포머 as Transformer and 지식 그래프 as knowledge graph. Keep surrounding explanatory prose in Chinese; do not turn ordinary Korean prose into English.
+- Translate human-readable labels and explanatory prose in diagrams, tables, and figure captions, but preserve embedded identifiers and code tokens.
+
+Follow all rules strictly.
+"""
+glossary-files = "/Users/hulj/tools_wp/babeldoc/glossaries/ko-zh-technical.csv"
+
+output = "/Users/hulj/tools_wp/babeldoc/output"
+working-dir = "/Users/hulj/tools_wp/babeldoc/work"
