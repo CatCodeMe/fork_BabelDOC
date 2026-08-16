@@ -8,7 +8,7 @@ def _composition(text: str, right_edge: float):
     return SimpleNamespace(
         pdf_line=SimpleNamespace(
             pdf_character=[SimpleNamespace(char_unicode=char) for char in text],
-            box=SimpleNamespace(x2=right_edge),
+            box=SimpleNamespace(x=0.0, x2=right_edge),
         )
     )
 
@@ -52,3 +52,13 @@ def test_oreilly_rows_keep_wrapped_titles_with_their_page_number():
 def test_manning_chapter_cover_bullets_remain_separate_items():
     rows = [_composition(text, 300.0) for text in ("■ What reasoning means", "■ Reviewing pretraining", "■ Introducing key approaches")]
     assert ParagraphFinder._bullet_list_ranges(rows) == [(0, 0), (1, 1), (2, 2)]
+
+
+def test_generic_body_list_requires_three_matching_items_and_keeps_wrapped_lines():
+    rows = [
+        _composition("- First item", 300.0),
+        _composition("  continuation", 300.0),
+        _composition("- Second item", 300.0),
+        _composition("- Third item", 300.0),
+    ]
+    assert ParagraphFinder._generic_list_item_ranges(rows) == [(0, 1), (2, 2), (3, 3)]

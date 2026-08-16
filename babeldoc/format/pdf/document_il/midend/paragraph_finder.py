@@ -944,15 +944,102 @@ class ParagraphFinder:
             for pos, start in enumerate(starts)
         ]
 
+    @classmethod
+    def _generic_list_item_ranges(
+        cls, compositions: list[PdfParagraphComposition]
+    ) -> list[tuple[int, int]]:
+        """Return list items only when a layout region proves it is a list.
+
+        A single dash or number is common in prose, code, and equations.  We
+        therefore require three adjacent items with the same marker family and
+        a shared left edge before separating anything.  Continuation lines stay
+        attached to their preceding marker, which is essential for narrow PDF
+        columns and translated Chinese text.
+        """
+        marker = re.compile(r"^\s*(?P<kind>[■▪•◦\-–*]|\d+[.)])\s+\S")
+        candidates: list[tuple[int, str, float]] = []
+        for index, composition in enumerate(compositions):
+            if not composition.pdf_line:
+                continue
+            match = marker.match(cls._line_text(composition.pdf_line))
+            if not match:
+                continue
+            kind = "number" if match.group("kind")[0].isdigit() else "bullet"
+            candidates.append((index, kind, composition.pdf_line.box.x))
+
+        ranges: list[tuple[int, int]] = []
+        run_start = 0
+        while run_start < len(candidates):
+            run_end = run_start + 1
+            _, family, anchor_x = candidates[run_start]
+            while (
+                run_end < len(candidates)
+                and candidates[run_end][0] > candidates[run_end - 1][0]
+                and candidates[run_end][1] == family
+                and abs(candidates[run_end][2] - anchor_x) <= 8
+            ):
+                run_end += 1
+            if run_end - run_start >= 3:
+                starts = [item[0] for item in candidates[run_start:run_end]]
+                ranges.extend(
+                    (start, starts[pos + 1] - 1 if pos + 1 < len(starts) else len(compositions) - 1)
+                    for pos, start in enumerate(starts)
+                )
+            run_start = run_end
+        return ranges
+
+    def _recover_visually_stacked_lines(
+        self, compositions: list[PdfParagraphComposition]
+    ) -> list[PdfParagraphComposition]:
+        """Recover rows when a layout engine puts vertically stacked text in one line.
+
+        This only changes an abnormally tall `PdfLine` whose glyphs have several
+        distinct visual baselines.  The later publisher/list recognizers still
+        decide whether those recovered rows are safe to split into paragraphs.
+        """
+        recovered: list[PdfParagraphComposition] = []
+        for composition in compositions:
+            line = composition.pdf_line
+            if not line or len(line.pdf_character) < 2:
+                recovered.append(composition)
+                continue
+            chars = line.pdf_character
+            heights = [char.visual_bbox.box.y2 - char.visual_bbox.box.y for char in chars]
+            median_height = float(np.median(heights)) if heights else 0.0
+            if median_height <= 0 or line.box.y2 - line.box.y < median_height * 2.5:
+                recovered.append(composition)
+                continue
+            tolerance = max(2.0, median_height * 0.35)
+            clusters: list[list[PdfCharacter]] = []
+            cluster_y: list[float] = []
+            for char in sorted(chars, key=lambda item: item.visual_bbox.box.y, reverse=True):
+                y = char.visual_bbox.box.y
+                if not clusters or abs(y - cluster_y[-1]) > tolerance:
+                    clusters.append([char])
+                    cluster_y.append(y)
+                else:
+                    clusters[-1].append(char)
+            if len(clusters) < 2:
+                recovered.append(composition)
+                continue
+            for cluster in clusters:
+                recovered.append(self.create_line(sorted(cluster, key=lambda item: item.visual_bbox.box.x)))
+        return recovered
+
     def _new_paragraph_from_compositions(
-        self, source: PdfParagraph, compositions: list[PdfParagraphComposition]
+        self,
+        source: PdfParagraph,
+        compositions: list[PdfParagraphComposition],
+        layout_label: str | None = None,
     ) -> PdfParagraph:
         paragraph = PdfParagraph(
             box=Box(0, 0, 0, 0),
             pdf_paragraph_composition=compositions,
             unicode="",
             debug_id=generate_base58_id(),
-            layout_label=source.layout_label,
+            # Structural rows must not be picked up by the LLM-only
+            # cross-column/cross-page prose joiner after we split them.
+            layout_label=layout_label or source.layout_label,
             layout_id=source.layout_id,
         )
         self.update_paragraph_data(paragraph, update_unicode=True)
@@ -980,35 +1067,57 @@ class ParagraphFinder:
         while index < len(paragraphs):
             paragraph = paragraphs[index]
             compositions = paragraph.pdf_paragraph_composition or []
+            if profile_name in ("oreilly", "manning"):
+                compositions = self._recover_visually_stacked_lines(compositions)
+            individual_rows = False
             if profile_name == "oreilly" and page_has_toc_heading:
                 row_ranges = self._oreilly_toc_row_ranges(compositions, adapter)
             elif profile_name == "manning" and page_has_manning_structure:
                 row_ranges = self._bullet_list_ranges(compositions) or self._oreilly_toc_row_ranges(compositions, adapter)
             else:
-                row_ranges = self._toc_row_ranges(compositions, adapter)
+                # The default is intentionally source-agnostic: numbered rows
+                # with aligned terminal page labels are TOC entries; explicit
+                # three-item bullet/ordered lists are body-list entries.
+                toc_ranges = self._toc_row_ranges(compositions, adapter)
+                if toc_ranges:
+                    row_ranges = toc_ranges
+                    individual_rows = True
+                elif profile_name == "auto":
+                    row_ranges = self._generic_list_item_ranges(compositions)
+                else:
+                    row_ranges = []
             if not row_ranges:
                 index += 1
                 continue
 
-            marked_rows = {
-                row_index
-                for start, end in row_ranges
-                for row_index in range(start, end + 1)
-            }
+            item_ranges = (
+                [(line, line) for start, end in row_ranges for line in range(start, end + 1)]
+                if individual_rows
+                else row_ranges
+            )
+            marked_rows = {row_index for start, end in item_ranges for row_index in range(start, end + 1)}
+            structure_label = "toc" if individual_rows or profile_name in ("oreilly", "manning") else "list_item"
             replacements: list[PdfParagraph] = []
             pending: list[PdfParagraphComposition] = []
-            for row_index, composition in enumerate(compositions):
-                if row_index in marked_rows:
-                    if pending:
-                        replacements.append(
-                            self._new_paragraph_from_compositions(paragraph, pending)
-                        )
-                        pending = []
-                    replacements.append(
-                        self._new_paragraph_from_compositions(paragraph, [composition])
+            items_by_start = {start: end for start, end in item_ranges}
+            row_index = 0
+            while row_index < len(compositions):
+                if row_index not in marked_rows:
+                    pending.append(compositions[row_index])
+                    row_index += 1
+                    continue
+                if pending:
+                    replacements.append(self._new_paragraph_from_compositions(paragraph, pending))
+                    pending = []
+                item_end = items_by_start[row_index]
+                replacements.append(
+                    self._new_paragraph_from_compositions(
+                        paragraph,
+                        compositions[row_index : item_end + 1],
+                        structure_label,
                     )
-                else:
-                    pending.append(composition)
+                )
+                row_index = item_end + 1
             if pending:
                 replacements.append(
                     self._new_paragraph_from_compositions(paragraph, pending)

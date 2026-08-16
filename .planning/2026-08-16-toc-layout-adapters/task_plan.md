@@ -11,6 +11,10 @@ Repair collapsed table-of-contents entries in translated PDFs, beginning with th
 3. [complete] Add focused unit tests and run regression tests.
 4. [complete] Regenerate the affected first chunk and visually verify its contents pages.
 5. [complete] Document use, limitations, and follow-up publisher profiles.
+6. [in_progress] Audit all saved translation trackers and turn the repair into a layered structural-recovery policy.
+7. [complete] Correct grouped multi-line item handling; add conservative generic ordered/unordered list recovery.
+8. [pending] Validate exact O'Reilly and Manning source/list pages, then regenerate only affected first chunks.
+9. [pending] Add navigation provenance and a safe merge selection mechanism for verified repaired chunks.
 
 ## Guardrails
 
@@ -18,6 +22,7 @@ Repair collapsed table-of-contents entries in translated PDFs, beginning with th
 - Preserve normal prose paragraphs; only split a run when multiple lines have a shared TOC-row signature.
 - A publisher profile may only add a recognizer or policy override, never replace generic processing silently.
 - Keep existing generated output immutable until a repaired artifact is verified.
+- Generated bookmarks are a fallback only: they must be marked as generated and use high-confidence headings, never guessed chapter text.
 
 ## Errors encountered
 
