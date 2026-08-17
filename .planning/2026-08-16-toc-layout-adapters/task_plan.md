@@ -16,6 +16,7 @@ Repair collapsed table-of-contents entries in translated PDFs, beginning with th
 8. [complete] Validate exact O'Reilly and Manning source/list pages, then regenerate only affected first chunks.
 9. [complete] Keep one unambiguous navigable merged dual deliverable.
 10. [complete] Add rendered-geometry overlap detection and structural-row typography fallback.
+11. [complete] Repair Traction's ordinal-and-bullet contents rows and publish one navigable dual PDF.
 
 ## Guardrails
 

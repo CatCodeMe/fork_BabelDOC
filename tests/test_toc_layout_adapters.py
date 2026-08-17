@@ -70,6 +70,23 @@ def test_manning_appendix_label_stays_with_its_square_marker_row():
     assert ParagraphFinder._manning_row_ranges(rows) == [(0, 0), (1, 2), (3, 4)]
 
 
+def test_traction_ordinal_bullet_contents_rows_are_separate():
+    rows = [
+        _composition("Prologue v", 400.0),
+        _composition("Traction Channels 1 1 •", 400.0),
+        _composition("The Bullseye Framework 9 2 •", 400.0),
+        _composition("Traction Thinking 19 3 •", 400.0),
+        _composition("Afterword 249 25 •", 400.0),
+    ]
+    assert ParagraphFinder._traction_toc_row_ranges(rows) == [
+        (0, 0),
+        (1, 1),
+        (2, 2),
+        (3, 3),
+        (4, 4),
+    ]
+
+
 def test_generic_body_list_requires_three_matching_items_and_keeps_wrapped_lines():
     rows = [
         _composition("- First item", 300.0),

@@ -22,6 +22,7 @@ import fitz
 
 HEADING = re.compile(r"^(\d+(?:\.\d+)+)\.?\s+(.+)$")
 NUMBER_START = re.compile(r"(?:^|\s)\d+(?:\.\d+)+\.?\s+")
+CHAPTER = re.compile(r"^chapter\s+(\d+)\s*$", re.I)
 
 
 def generated_outline(pdf: fitz.Document) -> list[list[object]]:
@@ -36,9 +37,33 @@ def generated_outline(pdf: fitz.Document) -> list[list[object]]:
         if "contents" in page_text or "目录" in page_text:
             continue
         for block in page.get_text("dict")["blocks"]:
-            for line in block.get("lines", []):
+            lines = block.get("lines", [])
+            for line_index, line in enumerate(lines):
                 spans, box = line["spans"], line["bbox"]
                 text = "".join(span["text"] for span in spans).strip()
+                chapter_match = CHAPTER.match(text)
+                # Books such as Traction print a dedicated ``CHAPTER N`` line
+                # followed by the chapter title.  This is a stronger fallback
+                # than guessing from a contents page, and works even when the
+                # heading font lacks the bold flag used by the section rule.
+                if chapter_match:
+                    chapter = chapter_match.group(1)
+                    if chapter in chapters:
+                        continue
+                    title = ""
+                    if line_index + 1 < len(lines):
+                        title = "".join(
+                            span["text"] for span in lines[line_index + 1]["spans"]
+                        ).strip()
+                    chapters.add(chapter)
+                    outline.append(
+                        [
+                            1,
+                            f"第 {chapter} 章" + (f" · {title}" if title else ""),
+                            page_number,
+                        ]
+                    )
+                    continue
                 match = HEADING.match(text)
                 # A numerical expression in normal body text is not a heading.
                 # This fallback only accepts hierarchical, bold section labels;

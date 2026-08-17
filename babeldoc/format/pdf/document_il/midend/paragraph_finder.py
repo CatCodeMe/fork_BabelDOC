@@ -68,6 +68,7 @@ TOC_LAYOUT_ADAPTERS = {
     "now-publishers": TocLayoutAdapter("now-publishers"),
     "oreilly": TocLayoutAdapter("oreilly"),
     "manning": TocLayoutAdapter("manning"),
+    "traction": TocLayoutAdapter("traction"),
 }
 
 
@@ -946,6 +947,25 @@ class ParagraphFinder:
         ]
 
     @classmethod
+    def _traction_toc_row_ranges(
+        cls, compositions: list[PdfParagraphComposition]
+    ) -> list[tuple[int, int]]:
+        """Return Traction's ordinal/bullet/title/page rows independently."""
+        ranges = []
+        # This PDF's text stream is ordered title/page first and the visual
+        # ordinal-plus-bullet last ("Traction Channels 1 1•"), even though it
+        # paints the ordinal at the left edge.  One such parser line is still
+        # exactly one visual contents row, so preserve it as a unit.
+        row = re.compile(
+            r"^\s*(?:prologue\s+[ivxlcdm]+|.+?\s+\d{1,3}\s+\d{1,2}\s*[•·])\s*$",
+            re.I,
+        )
+        for index, composition in enumerate(compositions):
+            if composition.pdf_line and row.match(cls._line_text(composition.pdf_line)):
+                ranges.append((index, index))
+        return ranges if len(ranges) >= 3 else []
+
+    @classmethod
     def _manning_row_ranges(
         cls, compositions: list[PdfParagraphComposition]
     ) -> list[tuple[int, int]]:
@@ -1113,8 +1133,25 @@ class ParagraphFinder:
             if profile_name == "oreilly":
                 compositions = self._recover_visually_stacked_lines(compositions)
             individual_rows = False
+            traction_rows = self._traction_toc_row_ranges(compositions)
+            if traction_rows:
+                logger.info(
+                    "Detected %d Traction-style contents rows (profile=%s)",
+                    len(traction_rows),
+                    profile_name,
+                )
             if profile_name == "oreilly" and page_has_toc_heading:
                 row_ranges = self._oreilly_toc_row_ranges(compositions, adapter)
+            # The source title is extracted into a separate layout region and
+            # can be absent from `page_text`; the explicit Traction profile's
+            # 3+ row signature is itself sufficient proof.
+            elif traction_rows:
+                # Some execution paths construct a fresh translation config
+                # for a worker and fall back to ``auto``.  This signature is
+                # strong enough to recognize Traction-style contents without
+                # relying on that optional named profile: every row has its
+                # title, printed page, ordinal, and visual bullet together.
+                row_ranges = traction_rows
             elif profile_name == "manning" and page_has_manning_structure:
                 row_ranges = self._manning_row_ranges(compositions) or self._oreilly_toc_row_ranges(compositions, adapter)
             else:
@@ -1149,6 +1186,8 @@ class ParagraphFinder:
                     if page_has_manning_chapter_list
                     else "manning_toc"
                 )
+            elif profile_name == "traction" or traction_rows:
+                structure_label = "traction_toc"
             elif profile_name == "oreilly":
                 structure_label = "oreilly_toc"
             elif individual_rows:

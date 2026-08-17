@@ -28,3 +28,10 @@
 # 2026-08-17 navigation alias repair
 
 - User reported no sidebar outline in the O'Reilly final. The explicit `.dual.navigable.pdf` contained 486 bookmarks and 972 links, while the sibling `.dual.pdf` had none. The merge launcher now deletes the intermediate `.dual.pdf` after navigation repair and retains only the unambiguous navigable final.
+
+# 2026-08-17 Traction repair
+
+- Rendered source/output page 4 and inspected the tracker. Confirmed a pre-translation structural collapse of all 25 table-of-contents rows, not an LLM-only formatting issue.
+- First Traction retry did not split because the title region was absent from the profile's page-text predicate. Debug `paragraph_finder.json` proves the row recognizer itself finds all 26 entries, so the retry will rely on its explicit 3+ row signature rather than that unreliable predicate.
+- Debugging found the remaining failure: Traction's rows were already individual source lines, but the O'Reilly-only visual-row recovery had been applied to them and separated their title/page/bullet pieces. Limited that recovery to O'Reilly and made the complete Traction signature an automatic fallback.
+- Verified the repair with 9 focused tests, a debug parse with 26 `traction_toc` rows, and a rendered clean dual page 4. Published the 36-page navigable final with three verified chapter bookmarks; moved obsolete non-navigable and intermediate outputs to `test-work/` so the book output root has only one dual PDF.
