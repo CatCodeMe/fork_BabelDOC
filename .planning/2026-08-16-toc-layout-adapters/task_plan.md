@@ -14,7 +14,7 @@ Repair collapsed table-of-contents entries in translated PDFs, beginning with th
 6. [complete] Audit all current deliverable PDFs and turn the repair into a layered structural-recovery policy.
 7. [complete] Correct grouped multi-line item handling; add conservative generic ordered/unordered list recovery.
 8. [complete] Validate exact O'Reilly and Manning source/list pages, then regenerate only affected first chunks.
-9. [complete] Make the merged dual deliverable navigable under both final file names.
+9. [complete] Keep one unambiguous navigable merged dual deliverable.
 10. [complete] Add rendered-geometry overlap detection and structural-row typography fallback.
 
 ## Guardrails

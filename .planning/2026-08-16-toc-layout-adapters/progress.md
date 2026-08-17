@@ -27,4 +27,4 @@
 
 # 2026-08-17 navigation alias repair
 
-- User reported no sidebar outline in the O'Reilly final. The explicit `.dual.navigable.pdf` contained 486 bookmarks and 972 links, while the sibling `.dual.pdf` had none. The merge launcher now makes both final names reference the same navigable artifact so opening either cannot lose the sidebar.
+- User reported no sidebar outline in the O'Reilly final. The explicit `.dual.navigable.pdf` contained 486 bookmarks and 972 links, while the sibling `.dual.pdf` had none. The merge launcher now deletes the intermediate `.dual.pdf` after navigation repair and retains only the unambiguous navigable final.
