@@ -1040,6 +1040,48 @@ class ParagraphFinder:
             run_start = run_end
         return ranges
 
+    @staticmethod
+    def _composition_center_y(composition: PdfParagraphComposition) -> float | None:
+        """Return a composition's visual baseline proxy when it has one."""
+        if composition.pdf_line:
+            box = composition.pdf_line.box
+        elif composition.pdf_character:
+            box = composition.pdf_character.visual_bbox.box
+        else:
+            return None
+        return (box.y + box.y2) / 2
+
+    @classmethod
+    def _bullet_aligned_text_item_ranges(
+        cls,
+        compositions: list[PdfParagraphComposition],
+        bullet_centers: list[float],
+    ) -> list[tuple[int, int]]:
+        """Recover list rows when PDF extraction separates bullets from text.
+
+        Some generators emit every bullet in its own layout object, while all
+        of the adjacent item text is placed in one paragraph.  The normal
+        marker-based rule cannot see the markers in that paragraph, so retain
+        each text line as an independent unit only when three or more of its
+        visual baselines coincide with standalone bullets elsewhere on the
+        page.  This is intentionally stricter than an indentation heuristic:
+        it must be backed by actual bullet glyphs.
+        """
+        if len(bullet_centers) < 3:
+            return []
+        matched: list[int] = []
+        for index, composition in enumerate(compositions):
+            if not composition.pdf_line:
+                continue
+            center_y = cls._composition_center_y(composition)
+            if center_y is not None and any(
+                abs(center_y - bullet_y) <= 2.5 for bullet_y in bullet_centers
+            ):
+                matched.append(index)
+        if len(matched) < 3:
+            return []
+        return [(index, index) for index in matched]
+
     def _recover_visually_stacked_lines(
         self, compositions: list[PdfParagraphComposition]
     ) -> list[PdfParagraphComposition]:
@@ -1120,6 +1162,23 @@ class ParagraphFinder:
             )
             adapter = TOC_LAYOUT_ADAPTERS["generic"]
 
+        # A list marker is occasionally emitted as its own paragraph or even
+        # its own character composition.  Collect its baseline once for this
+        # page so the adjacent text-only paragraph can be split safely below.
+        bullet_marker = re.compile(r"^\s*[■▪•◦¡]\s*$")
+        bullet_centers: list[float] = []
+        for candidate in paragraphs:
+            for composition in candidate.pdf_paragraph_composition or []:
+                text = ""
+                if composition.pdf_line:
+                    text = self._line_text(composition.pdf_line)
+                elif composition.pdf_character:
+                    text = composition.pdf_character.char_unicode
+                if bullet_marker.match(text):
+                    center_y = self._composition_center_y(composition)
+                    if center_y is not None:
+                        bullet_centers.append(center_y)
+
         index = 0
         while index < len(paragraphs):
             paragraph = paragraphs[index]
@@ -1164,6 +1223,10 @@ class ParagraphFinder:
                     individual_rows = True
                 elif profile_name == "auto":
                     row_ranges = self._generic_list_item_ranges(compositions)
+                    if not row_ranges:
+                        row_ranges = self._bullet_aligned_text_item_ranges(
+                            compositions, bullet_centers
+                        )
                 else:
                     row_ranges = []
             if not row_ranges:

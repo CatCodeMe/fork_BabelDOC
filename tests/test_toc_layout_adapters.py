@@ -13,6 +13,15 @@ def _composition(text: str, right_edge: float):
     )
 
 
+def _row_composition(text: str, y: float):
+    return SimpleNamespace(
+        pdf_line=SimpleNamespace(
+            pdf_character=[SimpleNamespace(char_unicode=char) for char in text],
+            box=SimpleNamespace(x=100.0, x2=300.0, y=y, y2=y + 12.0),
+        )
+    )
+
+
 def test_now_style_numbered_contents_rows_are_kept_separate():
     rows = [
         _composition("1 Introduction 204", 425.0),
@@ -95,3 +104,26 @@ def test_generic_body_list_requires_three_matching_items_and_keeps_wrapped_lines
         _composition("- Third item", 300.0),
     ]
     assert ParagraphFinder._generic_list_item_ranges(rows) == [(0, 1), (2, 2), (3, 3)]
+
+
+def test_separate_bullet_glyphs_split_their_aligned_text_rows():
+    rows = [
+        _row_composition("FinanceApp (Project)", 100.0),
+        _row_composition("main (Module/Folder)", 118.0),
+        _row_composition("calculators (Module/Folder)", 136.0),
+    ]
+
+    assert ParagraphFinder._bullet_aligned_text_item_ranges(
+        rows, [106.0, 124.0, 142.0]
+    ) == [(0, 0), (1, 1), (2, 2)]
+
+
+def test_separate_bullet_glyphs_do_not_split_two_incidental_lines():
+    rows = [
+        _row_composition("A sentence", 100.0),
+        _row_composition("continues here", 118.0),
+    ]
+
+    assert not ParagraphFinder._bullet_aligned_text_item_ranges(
+        rows, [106.0, 124.0, 142.0]
+    )
