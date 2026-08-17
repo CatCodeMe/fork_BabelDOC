@@ -188,6 +188,11 @@ PY
   local navigable_pdf="$merged_dir/$SAFE_NAME.zh-CN.dual.navigable.pdf"
   uv run --no-dev --directory "$ROOT_DIR" python "$ROOT_DIR/finalize_navigation.py" \
     "$SOURCE_PDF" "$dual_pdf" "$navigable_pdf"
+  # The plain `dual.pdf` name is the first file most users open.  Make it the
+  # navigable deliverable as well, while retaining the explicit navigable name
+  # as a hard-link compatibility alias without duplicating a book-sized PDF.
+  mv -f "$navigable_pdf" "$dual_pdf"
+  ln -f "$dual_pdf" "$navigable_pdf"
 }
 
 case "$MODE" in

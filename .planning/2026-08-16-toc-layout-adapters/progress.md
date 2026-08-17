@@ -24,3 +24,7 @@
 - O'Reilly v9 at a 0.70 profile-specific cap reduced the contents-page collision count to 53, but rendered page 19 still has adjacent long-row contact; starting a stricter 0.55-only retry.
 - O'Reilly v10 at 0.55 reduced its 13 contents pages to 7 residual geometry hits. Rendered page 19 is readable with no adjacent long-row cover-up. Rebuilt the 1061-page merged/navigable dual PDF with only this first chunk replaced; it retains 486 bookmarks and 972 clickable internal links.
 - Final canonical-PDF audit: zero contents collisions for Mathematics, B-tree, 2023 Data Structures, Inference Engineering, and graph-engineering; Manning 1 known chapter-decoration false positive; O'Reilly 7 residual hits to monitor, visually acceptable at the verified sample page.
+
+# 2026-08-17 navigation alias repair
+
+- User reported no sidebar outline in the O'Reilly final. The explicit `.dual.navigable.pdf` contained 486 bookmarks and 972 links, while the sibling `.dual.pdf` had none. The merge launcher now makes both final names reference the same navigable artifact so opening either cannot lose the sidebar.
