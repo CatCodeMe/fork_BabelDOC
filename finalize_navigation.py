@@ -118,13 +118,12 @@ def main() -> None:
     if source.page_count != dual.page_count:
         raise SystemExit(f"Page count differs: source={source.page_count}, dual={dual.page_count}.")
     source_toc = source.get_toc(simple=True)
+    restored = restore_numeric_links(source, dual)
     if source_toc:
         dual.set_toc(source_toc)
-        restored = restore_numeric_links(source, dual)
         provenance = "source-outline"
     else:
         dual.set_toc(generated_outline(dual))
-        restored = 0
         provenance = "generated-numbered-bold-headings"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     dual.save(args.output, garbage=3, deflate=True)
