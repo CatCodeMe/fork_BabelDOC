@@ -21,7 +21,7 @@ Trackers scanned: 72
 
 - `02_Mathematics_of_Machine_Learning_` — **numbered-run** (`02_Mathematics_of_Machine_Learning_/chunk-1-pages-1-50/chunk-001-pages-1-50/translate_tracking.json`): 4.1.1 Linear transformations and matrices • 121 4.1.2 Matrix operations revisited • 123 4.1.3 Inverting linear transformations • 124 4.1.4 The kernel and the image • 127
 
-- `02_Mathematics_of_Machine_Learning_` — **possible-collapsed-rows** (`02_Mathematics_of_Machine_Learning_/chunk-1-pages-1-50/chunk-001-pages-1-50/translate_tracking.json`): 6.1 Eigenvalues of matrices . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .. .. .. .. .. .. . . .. .. .. .. .. .. .. .. .. .. .. . 189 6.2 Finding eigenvalue-eigenvector pairs . . . . . . . . . . . . . . . . .. .. .. .. .. .. .. .. .. .. .. .. .. .. .. .. .. .. .. . 191 6.2.1 The characteristic polynomial • 192 6.2.2 Finding eigenvectors • 
+- `02_Mathematics_of_Machine_Learning_` — **possible-collapsed-rows** (`02_Mathematics_of_Machine_Learning_/chunk-1-pages-1-50/chunk-001-pages-1-50/translate_tracking.json`): 6.1 Eigenvalues of matrices . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .. .. .. .. .. .. . . .. .. .. .. .. .. .. .. .. .. .. . 189 6.2 Finding eigenvalue-eigenvector pairs . . . . . . . . . . . . . . . . .. .. .. .. .. .. .. .. .. .. .. .. .. .. .. .. .. .. .. . 191 6.2.1 The characteristic polynomial • 192 6.2.2 Finding eigenvectors •
 
 - `02_Mathematics_of_Machine_Learning_` — **toc-heading** (`02_Mathematics_of_Machine_Learning_/chunk-1-pages-1-50/chunk-001-pages-1-50/translate_tracking.json`): Table of Contents
 
