@@ -23,6 +23,7 @@ import fitz
 HEADING = re.compile(r"^(\d+(?:\.\d+)+)\.?\s+(.+)$")
 NUMBER_START = re.compile(r"(?:^|\s)\d+(?:\.\d+)+\.?\s+")
 CHAPTER = re.compile(r"^chapter\s+(\d+)\s*$", re.I)
+LINK_TERM = re.compile(r"[a-z0-9]+", re.I)
 
 
 def generated_outline(pdf: fitz.Document) -> list[list[object]]:
@@ -88,11 +89,53 @@ def generated_outline(pdf: fitz.Document) -> list[list[object]]:
     return outline
 
 
-def restore_numeric_links(source: fitz.Document, dual: fitz.Document) -> int:
-    restored = 0
+def _link_terms(page: fitz.Page, rect: fitz.Rect) -> set[str]:
+    """Return stable, visible tokens covered by a source link annotation."""
+    terms: set[str] = set()
+    for word in page.get_text("words"):
+        if fitz.Rect(word[:4]).intersects(rect):
+            terms.update(LINK_TERM.findall(word[4].lower()))
+    return terms
+
+
+def _translated_link_rect(
+    words: list[tuple], terms: set[str], expected_y: float, midpoint: float
+) -> fitz.Rect | None:
+    """Find a nearby translated citation or label by a stable source token.
+
+    Chinese text is independently typeset, so blindly mirroring a source link
+    can place a hit area over unrelated text. A right-hand link is therefore
+    added only when a source token (normally a citation year, figure number,
+    or identifier) is visible near the matching baseline.
+    """
+    if not terms:
+        return None
+    candidates: list[tuple[float, fitz.Rect]] = []
+    for word in words:
+        rect = fitz.Rect(word[:4])
+        if rect.x0 < midpoint:
+            continue
+        matched = set(LINK_TERM.findall(word[4].lower())) & terms
+        if not matched:
+            continue
+        distance = abs((rect.y0 + rect.y1) / 2 - expected_y)
+        # A wider window would make repeated years link to the wrong reference.
+        if distance <= 36:
+            candidates.append((distance - len(matched) * 8, rect))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
+
+
+def restore_numeric_links(source: fitz.Document, dual: fitz.Document) -> tuple[int, int]:
+    """Restore source-side links and verified text-matched Chinese-side links."""
+    restored_source = restored_translated = 0
     for page_no in range(source.page_count):
         src_page, dst_page = source[page_no], dual[page_no]
         sx, sy = (dst_page.rect.width / 2) / src_page.rect.width, dst_page.rect.height / src_page.rect.height
+        midpoint = dst_page.rect.width / 2
+        target_words = dst_page.get_text("words")
         for link in src_page.get_links():
             target_page = link.get("page")
             if not isinstance(target_page, int) or target_page < 0:
@@ -104,8 +147,24 @@ def restore_numeric_links(source: fitz.Document, dual: fitz.Document) -> int:
                 "page": target_page,
                 "to": fitz.Point(target.x * sx, target.y * sy),
             })
-            restored += 1
-    return restored
+            restored_source += 1
+
+            translated_rect = _translated_link_rect(
+                target_words,
+                _link_terms(src_page, origin),
+                (origin.y0 + origin.y1) * sy / 2,
+                midpoint,
+            )
+            if translated_rect is None:
+                continue
+            dst_page.insert_link({
+                "kind": fitz.LINK_GOTO,
+                "from": translated_rect,
+                "page": target_page,
+                "to": fitz.Point(target.x * sx + midpoint, target.y * sy),
+            })
+            restored_translated += 1
+    return restored_source, restored_translated
 
 
 def main() -> None:
@@ -118,7 +177,7 @@ def main() -> None:
     if source.page_count != dual.page_count:
         raise SystemExit(f"Page count differs: source={source.page_count}, dual={dual.page_count}.")
     source_toc = source.get_toc(simple=True)
-    restored = restore_numeric_links(source, dual)
+    restored_source, restored_translated = restore_numeric_links(source, dual)
     if source_toc:
         dual.set_toc(source_toc)
         provenance = "source-outline"
@@ -127,7 +186,11 @@ def main() -> None:
         provenance = "generated-numbered-bold-headings"
     args.output.parent.mkdir(parents=True, exist_ok=True)
     dual.save(args.output, garbage=3, deflate=True)
-    print(f"navigation_provenance={provenance} bookmarks={len(dual.get_toc())} restored_internal_links={restored}")
+    print(
+        f"navigation_provenance={provenance} bookmarks={len(dual.get_toc())} "
+        f"restored_original_links={restored_source} "
+        f"restored_translated_links={restored_translated}"
+    )
 
 
 if __name__ == "__main__":

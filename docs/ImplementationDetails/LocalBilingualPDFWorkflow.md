@@ -26,7 +26,7 @@ OCR、翻译提示词或字体兼容逻辑中。
 | `translate-book.zsh` | 历史的单书/小页段测试启动器；用物理小 PDF 避开 `--pages` 与内部拆分的组合问题 | 原始 PDF、页码范围 | `work/samples/`、`output/` |
 | `prompts/en-zh-technical.txt` | 英文技术书的本地提示词：保留代码、文件名、API、公式和约定英文术语 | 翻译请求 | 传给 CLI 的系统提示词 |
 | `glossaries/` | 可编辑的术语约束数据 | 本地配置 | 术语抽取/翻译行为 |
-| `repair_navigation.py` | 从原 PDF 复制目录并缩放恢复左侧原文的内部链接 | source PDF、dual PDF | 新的 `.dual.navigable.pdf`；不覆盖 dual 输入 |
+| `repair_navigation.py` | 从原 PDF 复制目录并恢复内部链接：左侧原文精确缩放；右侧中文仅在附近找到相同引文/编号时添加链接 | source PDF、dual PDF | 新的 `.dual.navigable.pdf`；不覆盖 dual 输入 |
 
 ## 端到端处理流程
 
@@ -137,11 +137,12 @@ flowchart LR
 
 1. 检查 source 和 dual 页数相同；
 2. 复制 source 的目录（TOC/bookmarks）；
-3. 枚举 source 的数值型内部链接，按双语页左半区比例缩放链接矩形与目标坐标，写入
-   dual 对应页。
+3. 枚举 source 的数值型内部链接，按双语页左半区比例缩放链接矩形与目标坐标；再在右侧
+   中文页同一基线附近寻找相同的引文年份、图号或标识符。仅找到明确匹配时，才为中文文本
+   写入指向中文侧目标的链接。
 
-命名目标或字符串目标会安全跳过；右侧中文重排后的目录文本没有稳定坐标，因此不承诺恢复
-中文侧每一条文本链接。输出必须是新文件，不能覆盖生成的 dual PDF。
+命名目标或字符串目标会安全跳过；中文重排后没有可确认文本匹配的链接也会安全跳过，绝不
+机械镜像到可能无关的位置。输出必须是新文件，不能覆盖生成的 dual PDF。
 
 ## 兼容性补丁管理
 
