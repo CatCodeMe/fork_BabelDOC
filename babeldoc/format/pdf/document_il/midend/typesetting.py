@@ -845,6 +845,24 @@ class TypesettingUnit:
 
 class Typesetting:
     stage_name = "Typesetting"
+    # Structural rows are intentionally independent translation units, but the
+    # source PDF often allocates only a single Latin baseline per row.  Chinese
+    # glyph metrics need more vertical clearance; leave a small, predictable
+    # margin rather than letting adjacent TOC/list rows touch after rendering.
+    structural_row_scale_caps = {
+        "toc": 0.82,
+        "list_item": 0.82,
+        # O'Reilly's multi-page contents uses particularly tight Latin source
+        # baselines.  The separate cap avoids reducing ordinary TOCs solely to
+        # accommodate this publisher's dense continuation pages.
+        "oreilly_toc": 0.55,
+        "traction_toc": 0.72,
+        # Manning's contents rows are set closer together than ordinary body
+        # lists.  Its Chinese translation needs a more conservative cap to
+        # avoid glyphs colliding with the next source baseline.
+        "manning_toc": 0.68,
+        "manning_list_item": 0.78,
+    }
 
     def __init__(self, translation_config: TranslationConfig):
         self.font_mapper = FontMapper(translation_config)
@@ -933,6 +951,13 @@ class Typesetting:
                     and paragraph.optimal_scale > mode_scale
                 ):
                     paragraph.optimal_scale = mode_scale
+                structural_row_scale_cap = self.structural_row_scale_caps.get(
+                    paragraph.layout_label
+                )
+                if structural_row_scale_cap is not None and paragraph.optimal_scale is not None:
+                    paragraph.optimal_scale = min(
+                        paragraph.optimal_scale, structural_row_scale_cap
+                    )
         else:
             logger.error(
                 "document_scales is empty, there seems no paragraph in this PDF"

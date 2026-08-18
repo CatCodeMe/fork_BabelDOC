@@ -1,6 +1,7 @@
 import logging
 import random
 import re
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -41,6 +42,34 @@ logger = logging.getLogger(__name__)
 
 # Base58 alphabet (Bitcoin style, without numbers 0, O, I, l)
 BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+@dataclass(frozen=True)
+class TocLayoutAdapter:
+    """A conservative policy for recovering individual TOC rows.
+
+    PDF layout models frequently label an entire contents column as one text region.
+    The generic policy works from the rows retained inside that region.  Named
+    policies are deliberately data-only tuning points: future publisher profiles
+    can be added without embedding a file name or page-coordinate map here.
+    """
+
+    name: str
+    min_consecutive_rows: int = 2
+    terminal_page_alignment_tolerance: float = 12.0
+
+
+TOC_LAYOUT_ADAPTERS = {
+    "auto": TocLayoutAdapter("auto"),
+    "generic": TocLayoutAdapter("generic"),
+    # NOW Publishers uses numbered section rows with a right-aligned page number.
+    # It currently shares the generic rule; the named profile is the stable place
+    # for source-specific tuning if a future NOW variant needs it.
+    "now-publishers": TocLayoutAdapter("now-publishers"),
+    "oreilly": TocLayoutAdapter("oreilly"),
+    "manning": TocLayoutAdapter("manning"),
+    "traction": TocLayoutAdapter("traction"),
+}
 
 
 def generate_base58_id(length: int = 5) -> str:
@@ -285,6 +314,21 @@ class ParagraphFinder:
 
         # 第五步：处理独立段落
         self.process_independent_paragraphs(paragraphs, median_width)
+
+        # Some publishers put an entire table of contents in one detected text
+        # region.  Keep its source rows as independent translation units before
+        # the translator converts the paragraph into a single Chinese run.
+        page_text = "\n".join(self._paragraph_text_ascii(p) for p in paragraphs).lower()
+        self.split_table_of_contents_rows(
+            paragraphs,
+            page_has_toc_heading="table of contents" in page_text,
+            page_has_manning_structure=(
+                "brief contents" in page_text
+                or re.search(r"\bcontents\b", page_text) is not None
+                or "this chapter covers" in page_text
+            ),
+            page_has_manning_chapter_list="this chapter covers" in page_text,
+        )
 
         # 新增后处理：合并带行号交替的正文段落（a 正文、b 行号、c 正文 -> 合并 a 与 c，保留 b）
         if getattr(self.translation_config, "merge_alternating_line_numbers", True):
@@ -818,6 +862,429 @@ class ParagraphFinder:
         line = PdfLine(pdf_character=chars)
         self.update_line_data(line)
         return PdfParagraphComposition(pdf_line=line)
+
+    @staticmethod
+    def _line_text(line: PdfLine) -> str:
+        return "".join(char.char_unicode or "" for char in line.pdf_character)
+
+    @staticmethod
+    def _is_numbered_toc_row(text: str) -> bool:
+        """Recognize a numbered TOC row without relying on a publisher name.
+
+        Require both a hierarchical section prefix and a terminal page number.
+        That prevents normal prose lines ending in a citation/year from becoming
+        separate translation units.
+        """
+        return bool(
+            re.match(r"^\s*\d+(?:\.\d+)*\.?\s+\S", text)
+            and re.search(r"\s\d{1,4}\s*$", text)
+        )
+
+    @classmethod
+    def _toc_row_ranges(
+        cls, compositions: list[PdfParagraphComposition], adapter: TocLayoutAdapter
+    ) -> list[tuple[int, int]]:
+        """Return runs of aligned numbered TOC rows in a paragraph."""
+        candidates: list[tuple[int, float]] = []
+        for index, composition in enumerate(compositions):
+            if not composition.pdf_line:
+                continue
+            line = composition.pdf_line
+            if cls._is_numbered_toc_row(cls._line_text(line)):
+                candidates.append((index, line.box.x2))
+
+        ranges: list[tuple[int, int]] = []
+        run_start = 0
+        while run_start < len(candidates):
+            run_end = run_start + 1
+            anchor_x2 = candidates[run_start][1]
+            while (
+                run_end < len(candidates)
+                and candidates[run_end][0] == candidates[run_end - 1][0] + 1
+                and abs(candidates[run_end][1] - anchor_x2)
+                <= adapter.terminal_page_alignment_tolerance
+            ):
+                run_end += 1
+            if run_end - run_start >= adapter.min_consecutive_rows:
+                ranges.append((candidates[run_start][0], candidates[run_end - 1][0]))
+            run_start = run_end
+        return ranges
+
+    @classmethod
+    def _oreilly_toc_row_ranges(
+        cls, compositions: list[PdfParagraphComposition], adapter: TocLayoutAdapter
+    ) -> list[tuple[int, int]]:
+        """Group O'Reilly title lines until their aligned Arabic/Roman page label."""
+        terminals = []
+        for index, composition in enumerate(compositions):
+            if not composition.pdf_line:
+                continue
+            text = cls._line_text(composition.pdf_line)
+            if re.search(r"\s(?:\d{1,4}|[ivxlcdm]{1,8})\s*$", text, re.I):
+                terminals.append((index, composition.pdf_line.box.x2))
+        if len(terminals) < 2:
+            return []
+        ranges, start = [], 0
+        for end, _ in terminals:
+            ranges.append((start, end))
+            start = end + 1
+        return ranges
+
+    @classmethod
+    def _bullet_list_ranges(
+        cls, compositions: list[PdfParagraphComposition]
+    ) -> list[tuple[int, int]]:
+        starts = [
+            index for index, composition in enumerate(compositions)
+            if composition.pdf_line
+            and re.match(r"^\s*[■▪•◦¡]", cls._line_text(composition.pdf_line))
+        ]
+        if len(starts) < 2:
+            return []
+        return [
+            (start, (starts[pos + 1] - 1) if pos + 1 < len(starts) else len(compositions) - 1)
+            for pos, start in enumerate(starts)
+        ]
+
+    @classmethod
+    def _traction_toc_row_ranges(
+        cls, compositions: list[PdfParagraphComposition]
+    ) -> list[tuple[int, int]]:
+        """Return Traction's ordinal/bullet/title/page rows independently."""
+        ranges = []
+        # This PDF's text stream is ordered title/page first and the visual
+        # ordinal-plus-bullet last ("Traction Channels 1 1•"), even though it
+        # paints the ordinal at the left edge.  One such parser line is still
+        # exactly one visual contents row, so preserve it as a unit.
+        row = re.compile(
+            r"^\s*(?:prologue\s+[ivxlcdm]+|.+?\s+\d{1,3}\s+\d{1,2}\s*[•·])\s*$",
+            re.I,
+        )
+        for index, composition in enumerate(compositions):
+            if composition.pdf_line and row.match(cls._line_text(composition.pdf_line)):
+                ranges.append((index, index))
+        return ranges if len(ranges) >= 3 else []
+
+    @classmethod
+    def _manning_row_ranges(
+        cls, compositions: list[PdfParagraphComposition]
+    ) -> list[tuple[int, int]]:
+        """Keep Manning's detached ``appendix X`` labels with their bullet row."""
+        starts = []
+        for index, composition in enumerate(compositions):
+            if not composition.pdf_line:
+                continue
+            text = cls._line_text(composition.pdf_line)
+            if not re.match(r"^\s*[■▪•◦¡]", text):
+                continue
+            # In the brief contents, the italic appendix label is emitted as a
+            # separate line immediately before its square-marker title.  Make
+            # it part of the same item rather than leaving it to be joined to
+            # every later appendix in one translated paragraph.
+            if index and compositions[index - 1].pdf_line and re.match(
+                r"^\s*appendix\s+[A-Z]\s*$",
+                cls._line_text(compositions[index - 1].pdf_line),
+                re.I,
+            ):
+                starts.append(index - 1)
+            else:
+                starts.append(index)
+        if len(starts) < 2:
+            return []
+        return [
+            (start, starts[pos + 1] - 1 if pos + 1 < len(starts) else len(compositions) - 1)
+            for pos, start in enumerate(starts)
+        ]
+
+    @classmethod
+    def _generic_list_item_ranges(
+        cls, compositions: list[PdfParagraphComposition]
+    ) -> list[tuple[int, int]]:
+        """Return list items only when a layout region proves it is a list.
+
+        A single dash or number is common in prose, code, and equations.  We
+        therefore require three adjacent items with the same marker family and
+        a shared left edge before separating anything.  Continuation lines stay
+        attached to their preceding marker, which is essential for narrow PDF
+        columns and translated Chinese text.
+        """
+        marker = re.compile(r"^\s*(?P<kind>[■▪•◦\-–*]|\d+[.)])\s+\S")
+        candidates: list[tuple[int, str, float]] = []
+        for index, composition in enumerate(compositions):
+            if not composition.pdf_line:
+                continue
+            match = marker.match(cls._line_text(composition.pdf_line))
+            if not match:
+                continue
+            kind = "number" if match.group("kind")[0].isdigit() else "bullet"
+            candidates.append((index, kind, composition.pdf_line.box.x))
+
+        ranges: list[tuple[int, int]] = []
+        run_start = 0
+        while run_start < len(candidates):
+            run_end = run_start + 1
+            _, family, anchor_x = candidates[run_start]
+            while (
+                run_end < len(candidates)
+                and candidates[run_end][0] > candidates[run_end - 1][0]
+                and candidates[run_end][1] == family
+                and abs(candidates[run_end][2] - anchor_x) <= 8
+            ):
+                run_end += 1
+            if run_end - run_start >= 3:
+                starts = [item[0] for item in candidates[run_start:run_end]]
+                ranges.extend(
+                    (start, starts[pos + 1] - 1 if pos + 1 < len(starts) else len(compositions) - 1)
+                    for pos, start in enumerate(starts)
+                )
+            run_start = run_end
+        return ranges
+
+    @staticmethod
+    def _composition_center_y(composition: PdfParagraphComposition) -> float | None:
+        """Return a composition's visual baseline proxy when it has one."""
+        if composition.pdf_line:
+            box = composition.pdf_line.box
+        elif composition.pdf_character:
+            box = composition.pdf_character.visual_bbox.box
+        else:
+            return None
+        return (box.y + box.y2) / 2
+
+    @classmethod
+    def _bullet_aligned_text_item_ranges(
+        cls,
+        compositions: list[PdfParagraphComposition],
+        bullet_centers: list[float],
+    ) -> list[tuple[int, int]]:
+        """Recover list rows when PDF extraction separates bullets from text.
+
+        Some generators emit every bullet in its own layout object, while all
+        of the adjacent item text is placed in one paragraph.  The normal
+        marker-based rule cannot see the markers in that paragraph, so retain
+        each text line as an independent unit only when three or more of its
+        visual baselines coincide with standalone bullets elsewhere on the
+        page.  This is intentionally stricter than an indentation heuristic:
+        it must be backed by actual bullet glyphs.
+        """
+        if len(bullet_centers) < 3:
+            return []
+        matched: list[int] = []
+        for index, composition in enumerate(compositions):
+            if not composition.pdf_line:
+                continue
+            center_y = cls._composition_center_y(composition)
+            if center_y is not None and any(
+                abs(center_y - bullet_y) <= 2.5 for bullet_y in bullet_centers
+            ):
+                matched.append(index)
+        if len(matched) < 3:
+            return []
+        return [(index, index) for index in matched]
+
+    def _recover_visually_stacked_lines(
+        self, compositions: list[PdfParagraphComposition]
+    ) -> list[PdfParagraphComposition]:
+        """Recover rows when a layout engine puts vertically stacked text in one line.
+
+        This only changes an abnormally tall `PdfLine` whose glyphs have several
+        distinct visual baselines.  The later publisher/list recognizers still
+        decide whether those recovered rows are safe to split into paragraphs.
+        """
+        recovered: list[PdfParagraphComposition] = []
+        for composition in compositions:
+            line = composition.pdf_line
+            if not line or len(line.pdf_character) < 2:
+                recovered.append(composition)
+                continue
+            chars = line.pdf_character
+            heights = [char.visual_bbox.box.y2 - char.visual_bbox.box.y for char in chars]
+            median_height = float(np.median(heights)) if heights else 0.0
+            # A two-row contents entry can be only a little over twice the
+            # glyph height because adjacent baselines overlap. The distinct
+            # baseline requirement below is the safety guard; this threshold
+            # must therefore admit two tightly packed visual rows.
+            if median_height <= 0 or line.box.y2 - line.box.y < median_height * 1.6:
+                recovered.append(composition)
+                continue
+            tolerance = max(2.0, median_height * 0.35)
+            clusters: list[list[PdfCharacter]] = []
+            cluster_y: list[float] = []
+            for char in sorted(chars, key=lambda item: item.visual_bbox.box.y, reverse=True):
+                y = char.visual_bbox.box.y
+                if not clusters or abs(y - cluster_y[-1]) > tolerance:
+                    clusters.append([char])
+                    cluster_y.append(y)
+                else:
+                    clusters[-1].append(char)
+            if len(clusters) < 2:
+                recovered.append(composition)
+                continue
+            for cluster in clusters:
+                recovered.append(self.create_line(sorted(cluster, key=lambda item: item.visual_bbox.box.x)))
+        return recovered
+
+    def _new_paragraph_from_compositions(
+        self,
+        source: PdfParagraph,
+        compositions: list[PdfParagraphComposition],
+        layout_label: str | None = None,
+    ) -> PdfParagraph:
+        paragraph = PdfParagraph(
+            box=Box(0, 0, 0, 0),
+            pdf_paragraph_composition=compositions,
+            unicode="",
+            debug_id=generate_base58_id(),
+            # Structural rows must not be picked up by the LLM-only
+            # cross-column/cross-page prose joiner after we split them.
+            layout_label=layout_label or source.layout_label,
+            layout_id=source.layout_id,
+        )
+        self.update_paragraph_data(paragraph, update_unicode=True)
+        return paragraph
+
+    def split_table_of_contents_rows(
+        self,
+        paragraphs: list[PdfParagraph],
+        page_has_toc_heading: bool = False,
+        page_has_manning_structure: bool = False,
+        page_has_manning_chapter_list: bool = False,
+    ):
+        """Split proven TOC rows while leaving non-TOC prose untouched."""
+        profile_name = getattr(self.translation_config, "toc_layout_adapter", "auto")
+        if profile_name in (None, "off"):
+            return
+        adapter = TOC_LAYOUT_ADAPTERS.get(profile_name)
+        if adapter is None:
+            logger.warning(
+                "Unknown TOC layout adapter %r; using the generic detector.",
+                profile_name,
+            )
+            adapter = TOC_LAYOUT_ADAPTERS["generic"]
+
+        # A list marker is occasionally emitted as its own paragraph or even
+        # its own character composition.  Collect its baseline once for this
+        # page so the adjacent text-only paragraph can be split safely below.
+        bullet_marker = re.compile(r"^\s*[■▪•◦¡]\s*$")
+        bullet_centers: list[float] = []
+        for candidate in paragraphs:
+            for composition in candidate.pdf_paragraph_composition or []:
+                text = ""
+                if composition.pdf_line:
+                    text = self._line_text(composition.pdf_line)
+                elif composition.pdf_character:
+                    text = composition.pdf_character.char_unicode
+                if bullet_marker.match(text):
+                    center_y = self._composition_center_y(composition)
+                    if center_y is not None:
+                        bullet_centers.append(center_y)
+
+        index = 0
+        while index < len(paragraphs):
+            paragraph = paragraphs[index]
+            compositions = paragraph.pdf_paragraph_composition or []
+            # O'Reilly sometimes encodes several visual rows in one tall line.
+            # Manning already exposes normal source lines; applying visual-row
+            # recovery there can reorder glyphs whose vertical bboxes overlap
+            # (for example, it turns the final "g" in ordinary words into a
+            # separate leading fragment).  Its bullet/contents recognizers
+            # below therefore operate on the original line order.
+            if profile_name == "oreilly":
+                compositions = self._recover_visually_stacked_lines(compositions)
+            individual_rows = False
+            traction_rows = self._traction_toc_row_ranges(compositions)
+            if traction_rows:
+                logger.info(
+                    "Detected %d Traction-style contents rows (profile=%s)",
+                    len(traction_rows),
+                    profile_name,
+                )
+            if profile_name == "oreilly" and page_has_toc_heading:
+                row_ranges = self._oreilly_toc_row_ranges(compositions, adapter)
+            # The source title is extracted into a separate layout region and
+            # can be absent from `page_text`; the explicit Traction profile's
+            # 3+ row signature is itself sufficient proof.
+            elif traction_rows:
+                # Some execution paths construct a fresh translation config
+                # for a worker and fall back to ``auto``.  This signature is
+                # strong enough to recognize Traction-style contents without
+                # relying on that optional named profile: every row has its
+                # title, printed page, ordinal, and visual bullet together.
+                row_ranges = traction_rows
+            elif profile_name == "manning" and page_has_manning_structure:
+                row_ranges = self._manning_row_ranges(compositions) or self._oreilly_toc_row_ranges(compositions, adapter)
+            else:
+                # The default is intentionally source-agnostic: numbered rows
+                # with aligned terminal page labels are TOC entries; explicit
+                # three-item bullet/ordered lists are body-list entries.
+                toc_ranges = self._toc_row_ranges(compositions, adapter)
+                if toc_ranges:
+                    row_ranges = toc_ranges
+                    individual_rows = True
+                elif profile_name == "auto":
+                    row_ranges = self._generic_list_item_ranges(compositions)
+                    if not row_ranges:
+                        row_ranges = self._bullet_aligned_text_item_ranges(
+                            compositions, bullet_centers
+                        )
+                else:
+                    row_ranges = []
+            if not row_ranges:
+                index += 1
+                continue
+
+            item_ranges = (
+                [(line, line) for start, end in row_ranges for line in range(start, end + 1)]
+                if individual_rows
+                else row_ranges
+            )
+            marked_rows = {row_index for start, end in item_ranges for row_index in range(start, end + 1)}
+            if profile_name == "manning":
+                # Manning uses the same small square marker for the book TOC
+                # and the shorter "This chapter covers" list.  Keep both
+                # structural, but expose distinct labels so typesetting can
+                # give its unusually dense contents rows more vertical room.
+                structure_label = (
+                    "manning_list_item"
+                    if page_has_manning_chapter_list
+                    else "manning_toc"
+                )
+            elif profile_name == "traction" or traction_rows:
+                structure_label = "traction_toc"
+            elif profile_name == "oreilly":
+                structure_label = "oreilly_toc"
+            elif individual_rows:
+                structure_label = "toc"
+            else:
+                structure_label = "list_item"
+            replacements: list[PdfParagraph] = []
+            pending: list[PdfParagraphComposition] = []
+            items_by_start = {start: end for start, end in item_ranges}
+            row_index = 0
+            while row_index < len(compositions):
+                if row_index not in marked_rows:
+                    pending.append(compositions[row_index])
+                    row_index += 1
+                    continue
+                if pending:
+                    replacements.append(self._new_paragraph_from_compositions(paragraph, pending))
+                    pending = []
+                item_end = items_by_start[row_index]
+                replacements.append(
+                    self._new_paragraph_from_compositions(
+                        paragraph,
+                        compositions[row_index : item_end + 1],
+                        structure_label,
+                    )
+                )
+                row_index = item_end + 1
+            if pending:
+                replacements.append(
+                    self._new_paragraph_from_compositions(paragraph, pending)
+                )
+
+            paragraphs[index : index + 1] = replacements
+            index += len(replacements)
 
     def calculate_median_line_width(self, paragraphs: list[PdfParagraph]) -> float:
         # 收集所有行的宽度

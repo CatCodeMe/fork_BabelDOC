@@ -10,7 +10,6 @@ CHUNK_SIZE=${BABELDOC_CHUNK_SIZE:-50}
 OUTPUT_ROOT="$ROOT_DIR/output/chunks"
 WORK_ROOT="$ROOT_DIR/work/chunks"
 INPUT_ROOT="$ROOT_DIR/work/input-chunks"
-FINAL_ROOT=${BABELDOC_FINAL_ROOT:-"$ROOT_DIR/output/final"}
 
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
@@ -28,13 +27,12 @@ Usage:
 prepare  Create local PDFs of at most BABELDOC_CHUNK_SIZE physical pages each (default: 50).
 test     Translate exactly one prepared chunk by its index (for example 1).
 run      Translate prepared chunks sequentially. Completed chunks are skipped.
-parallel Translate uncompleted chunks in batches. Default: 3 simultaneous chunks.
-merge    Combine completed chunks and create a final navigable dual PDF.
-all      Run prepare, translate all chunks, then finalize the navigable dual PDF.
+parallel Translate uncompleted chunks in batches, then merge. Default: 3 simultaneous chunks.
+merge    Combine completed chunk PDFs into one full dual PDF and one full mono PDF.
+all      Run prepare, then run.
 
 Set BABELDOC_CHUNK_SIZE=N before the command to use another chunk size.
 Set BABELDOC_FORCE_RERUN=1 to rebuild a completed chunk deliberately.
-Set BABELDOC_FINAL_ROOT=/absolute/path to override final-delivery staging.
 EOF
 }
 
@@ -52,33 +50,6 @@ CHUNK_DIR="$INPUT_ROOT/$SAFE_NAME"
 BOOK_OUTPUT="$OUTPUT_ROOT/$SAFE_NAME"
 BOOK_WORK="$WORK_ROOT/$SAFE_NAME"
 MANIFEST="$CHUNK_DIR/manifest.tsv"
-QUEUE_ID_FILE="$BOOK_WORK/queue-id"
-
-allocate_queue_id() {
-  [[ -f "$QUEUE_ID_FILE" ]] && return
-  mkdir -p "$BOOK_WORK" "$FINAL_ROOT"
-  local lock_dir="$FINAL_ROOT/.queue-id.lock"
-  local attempts=0
-  until mkdir "$lock_dir" 2>/dev/null; do
-    (( attempts += 1 ))
-    if (( attempts > 100 )); then
-      print -u2 "Timed out waiting to allocate a final-delivery queue ID."
-      return 1
-    fi
-    sleep 0.1
-  done
-  local next_file="$FINAL_ROOT/.next-queue-id"
-  local next=1
-  [[ -f "$next_file" ]] && next=$(< "$next_file")
-  [[ "$next" =~ '^[1-9][0-9]*$' ]] || {
-    rmdir "$lock_dir"
-    print -u2 "Invalid queue ID counter: $next_file"
-    return 1
-  }
-  printf '%04d\n' "$next" > "$QUEUE_ID_FILE"
-  print $((next + 1)) > "$next_file"
-  rmdir "$lock_dir"
-}
 
 prepare() {
   mkdir -p "$CHUNK_DIR"
@@ -106,9 +77,7 @@ for index, start in enumerate(range(0, src.page_count, size), start=1):
 manifest.write_text('\n'.join(rows) + '\n', encoding='utf-8')
 print(f'Prepared {len(rows) - 1} chunks from {src.page_count} pages.')
 PY
-  allocate_queue_id
   print "Manifest: $MANIFEST"
-  print "Final delivery queue ID: $(< "$QUEUE_ID_FILE")"
 }
 
 translate() {
@@ -176,15 +145,13 @@ parallel_translate() {
   mkdir -p "$BOOK_WORK/parallel-logs"
   tail -n +2 "$MANIFEST" | cut -f1 | xargs -P "$parallelism" -I {} \
     /bin/zsh "$ROOT_DIR/translate-chunks.zsh" one "$SOURCE_PDF" {}
-  print "\nAll uncompleted chunks finished. Preparing final merged deliverable."
+  merge_outputs
+  print "\nAll uncompleted chunks finished and merged. Output root: $BOOK_OUTPUT"
 }
 
 merge_outputs() {
   [[ -f "$MANIFEST" ]] || { print -u2 "No chunk manifest. Run prepare first."; exit 1; }
-  allocate_queue_id
   local merged_dir="$BOOK_OUTPUT/merged"
-  local queue_id=$(< "$QUEUE_ID_FILE")
-  local final_dir="$FINAL_ROOT/${queue_id}--${SAFE_NAME}"
   mkdir -p "$merged_dir"
   MANIFEST="$MANIFEST" BOOK_OUTPUT="$BOOK_OUTPUT" MERGED_DIR="$merged_dir" BOOK_NAME="$SAFE_NAME" \
     uv run --no-dev --directory "$ROOT_DIR" python - <<'PY'
@@ -217,45 +184,13 @@ for kind in ('dual', 'mono'):
     print(f'Created {kind}: {target} ({result.page_count} pages)')
     result.close()
 PY
-  mkdir -p "$final_dir"
-  local merged_dual="$merged_dir/${SAFE_NAME}.zh-CN.dual.pdf"
-  local final_dual="$final_dir/${SAFE_NAME}.zh-CN.dual.navigable.pdf"
-  uv run --no-dev --directory "$ROOT_DIR" python "$ROOT_DIR/repair_navigation.py" \
-    "$SOURCE_PDF" "$merged_dual" "$final_dual"
-  SOURCE_PDF="$SOURCE_PDF" FINAL_DUAL="$final_dual" QUEUE_ID="$queue_id" \
-    uv run --no-dev --directory "$ROOT_DIR" python - <<'PY'
-import json
-import os
-from pathlib import Path
-
-import fitz
-
-source_path = Path(os.environ['SOURCE_PDF'])
-final_path = Path(os.environ['FINAL_DUAL'])
-source = fitz.open(source_path)
-final = fitz.open(final_path)
-try:
-    if source.page_count != final.page_count:
-        raise SystemExit(
-            f'Final page count differs: source={source.page_count}, final={final.page_count}.'
-        )
-    payload = {
-        'queue_id': os.environ['QUEUE_ID'],
-        'source_pdf': str(source_path),
-        'final_navigable_dual_pdf': str(final_path),
-        'page_count': final.page_count,
-        'toc_entries': len(final.get_toc(simple=True)),
-        'internal_links': sum(len(final[i].get_links()) for i in range(final.page_count)),
-    }
-finally:
-    source.close()
-    final.close()
-report = final_path.with_name('handoff.json')
-report.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-print(f'Final deliverable: {final_path}')
-print(f'Handoff report: {report}')
-PY
-  print "\nFinal deliverable is staged outside chunks: $final_dir"
+  local dual_pdf="$merged_dir/$SAFE_NAME.zh-CN.dual.pdf"
+  local navigable_pdf="$merged_dir/$SAFE_NAME.zh-CN.dual.navigable.pdf"
+  uv run --no-dev --directory "$ROOT_DIR" python "$ROOT_DIR/finalize_navigation.py" \
+    "$SOURCE_PDF" "$dual_pdf" "$navigable_pdf"
+  # `dual.pdf` is only an intermediate consumed by the navigation finalizer.
+  # Keep one unambiguous user-facing final: `dual.navigable.pdf`.
+  rm -f "$dual_pdf"
 }
 
 case "$MODE" in
@@ -270,7 +205,7 @@ case "$MODE" in
     translate "$3"
     ;;
   run) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; translate; merge_outputs ;;
-  parallel) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; parallel_translate; merge_outputs ;;
+  parallel) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; parallel_translate ;;
   merge) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; merge_outputs ;;
   all) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; prepare; translate; merge_outputs ;;
   *) usage >&2; exit 2 ;;
