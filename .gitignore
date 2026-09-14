@@ -32,6 +32,13 @@ examples/
 /make_gif.py
 /dist
 .cache
+
+# Locally generated PDF translation intermediates and visual-inspection files.
+# Deliver reviewed artifacts through the handoff workflow rather than Git.
+/output/
+/work/
+/test-work/
+/tmp/
 .cursor/rules/_*.mdc
 /.cursor
 /xnotes
@@ -43,10 +50,16 @@ babeldoc/format/txt
 # uv
 uv.lock
 
+# Local secrets and per-user configuration (never commit real API keys).
+# The real config is babeldoc.<pair>.toml copied from the tracked *.template.toml.
+.env
+.env.*
+babeldoc.*.toml
+!babeldoc.*.template.toml
+
 /.claude
 babeldoc/format/playground
 temp.jpg
 .serena
 .codex
 .repomap.tags.cache.v1/
-

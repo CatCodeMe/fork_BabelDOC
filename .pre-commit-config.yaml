@@ -1,4 +1,3 @@
-files: '^.*\.py$'
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
@@ -6,7 +5,27 @@ repos:
     hooks:
       # Run the linter.
       - id: ruff
+        files: '^.*\.py$'
         args: [ "--fix",
                 "--ignore=E203,E261,E501,E741,F841" ]
       # Run the formatter.
       - id: ruff-format
+        files: '^.*\.py$'
+  - repo: local
+    hooks:
+      # Block credentials before they ever enter history.
+      - id: check-secrets
+        name: scan staged files for credentials
+        entry: python3 tools/check_secrets.py
+        language: system
+        files: '.*'
+        require_serial: true
+      # Whole-tree sweep at push time, so nothing sensitive leaves the machine.
+      - id: check-secrets-tracked
+        name: scan tracked files for credentials
+        entry: python3 tools/check_secrets.py --tracked
+        language: system
+        files: '.*'
+        pass_filenames: false
+        stages: [pre-push]
+        require_serial: true
