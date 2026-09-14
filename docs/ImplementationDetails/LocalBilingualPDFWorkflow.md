@@ -22,8 +22,8 @@ OCR、翻译提示词或字体兼容逻辑中。
 | 组件 | 职责 | 输入 | 输出/副作用 |
 | --- | --- | --- | --- |
 | `babeldoc` CLI | PDF 解析、布局分析、段落/样式/公式处理、LLM 翻译、排版、生成 mono/dual PDF | 物理 PDF 分片或完整 PDF | PDF、working directory、翻译追踪数据 |
-| `translate-chunks.zsh` | 长书物理分片、已完成分片跳过、单分片重试、有限并行、按顺序合并 | 原始 PDF、环境变量 | `work/input-chunks/`、`work/chunks/`、`output/chunks/` |
-| `translate-book.zsh` | 历史的单书/小页段测试启动器；用物理小 PDF 避开 `--pages` 与内部拆分的组合问题 | 原始 PDF、页码范围 | `work/samples/`、`output/` |
+| `translate-chunks.zsh` | 长书物理分片、已完成分片跳过、单分片重试、有限并行、按顺序合并；合并产出唯一可导航双语 PDF，就地重标大纲，并写出队列号与 `handoff.json` | 原始 PDF、环境变量 | `work/input-chunks/`、`work/chunks/`、`output/chunks/`、`output/final/<queue-id>--<book>/` |
+| `translate-paper.zsh` | 单篇论文/短文档：一次 BabelDOC 作业，不做内部分片，不编写队列交付 | 原始 PDF、环境变量 | `output/papers/<name>/` |
 | `prompts/en-zh-technical.txt` | 英文技术书的本地提示词：保留代码、文件名、API、公式和约定英文术语 | 翻译请求 | 传给 CLI 的系统提示词 |
 | `glossaries/` | 可编辑的术语约束数据 | 本地配置 | 术语抽取/翻译行为 |
 | `repair_navigation.py` | 从原 PDF 复制目录并恢复内部链接：左侧原文精确缩放；右侧中文仅在附近找到相同引文/编号时添加链接 | source PDF、dual PDF | 新的 `.dual.navigable.pdf`；不覆盖 dual 输入 |
