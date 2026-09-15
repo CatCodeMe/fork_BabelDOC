@@ -275,6 +275,9 @@ def is_formulas_font(font_name: str, formular_font_pattern: str | None) -> bool:
             r"|TeX-"
             r"|rsfs"
             r"|txsy"
+            # TeX/txfonts math italic glyphs are commonly embedded as txmiaX.
+            # They carry inline equations in many CS conference PDFs.
+            r"|txmia"
             r"|wasy"
             r"|stmary"
             r"|.*Mono"
