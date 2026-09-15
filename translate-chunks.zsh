@@ -62,6 +62,12 @@ Environment overrides:
                                 staged delivery is written.
   BABELDOC_KEEP_CHUNK_SCRATCH=1 Keep babeldoc's per-chunk intermediates for
                                 debugging instead of deleting them.
+  BABELDOC_MAX_RICH_TEXT_PLACEHOLDERS
+                                Paragraphs needing more inline-style placeholder
+                                pairs than this are translated as plain text
+                                (babeldoc default: 400).
+  BABELDOC_FORCE_RESPLIT=1      Replace a manifest whose page ranges differ even
+                                though translated chunks exist for the old ones.
 EOF
 }
 
@@ -156,7 +162,9 @@ MANIFEST="$CHUNK_DIR/manifest.tsv"
 
 prepare() {
   mkdir -p "$CHUNK_DIR"
-  SOURCE_PDF="$SOURCE_PDF" CHUNK_DIR="$CHUNK_DIR" MANIFEST="$MANIFEST" CHUNK_SIZE="$CHUNK_SIZE" \
+  BOOK_OUTPUT="$BOOK_OUTPUT" SOURCE_PDF="$SOURCE_PDF" CHUNK_DIR="$CHUNK_DIR" \
+    MANIFEST="$MANIFEST" CHUNK_SIZE="$CHUNK_SIZE" \
+    ALLOW_RESPLIT="${BABELDOC_FORCE_RESPLIT:-0}" \
     uv run --no-dev --directory "$ROOT_DIR" python - <<'PY'
 import os
 from pathlib import Path
@@ -165,23 +173,62 @@ import fitz
 src_path = Path(os.environ['SOURCE_PDF'])
 chunk_dir = Path(os.environ['CHUNK_DIR'])
 manifest = Path(os.environ['MANIFEST'])
+output_root = Path(os.environ['BOOK_OUTPUT'])
 size = int(os.environ['CHUNK_SIZE'])
 src = fitz.open(src_path)
-rows = ['index\tfirst_page\tlast_page\tpath']
+
+new_ranges = {}
 for index, start in enumerate(range(0, src.page_count, size), start=1):
-    end = min(start + size, src.page_count)
-    path = chunk_dir / f'chunk-{index:03d}-pages-{start + 1}-{end}.pdf'
+    new_ranges[index] = (start + 1, min(start + size, src.page_count))
+
+# Regenerating a manifest with a different chunk size silently orphans every
+# already-translated chunk: `merge` looks outputs up by the manifest's page
+# ranges, so it would fail with "Missing dual output" and the translations would
+# look lost even though they are still on disk. Refuse instead.
+previous = {}
+if manifest.exists():
+    with manifest.open(encoding='utf-8') as handle:
+        next(handle, None)
+        for line in handle:
+            parts = line.rstrip('\n').split('\t')
+            if len(parts) >= 3:
+                previous[int(parts[0])] = (int(parts[1]), int(parts[2]))
+if previous and previous != new_ranges and os.environ['ALLOW_RESPLIT'] != '1':
+    stranded = []
+    for index, (first, last) in sorted(previous.items()):
+        folder = output_root / f'chunk-{index}-pages-{first}-{last}'
+        done = [p for p in folder.glob('*.dual.pdf') if p.stat().st_size > 0]
+        if done:
+            stranded.append(f'chunk-{index}-pages-{first}-{last} ({len(done)} file(s))')
+    if stranded:
+        old = sorted({(f, l) for f, l in previous.values()})
+        widths = sorted({l - f + 1 for f, l in old})
+        raise SystemExit(
+            f'Refusing to re-chunk: the existing manifest uses different page '
+            f'ranges and {len(stranded)} translated chunk(s) already exist.\n'
+            f'  existing chunks : {widths} page(s) each, {len(old)} of them\n'
+            f'  requested       : {size} page(s) each, {len(new_ranges)} of them\n'
+            f'  stranded e.g.   : {stranded[0]}\n'
+            f'Re-run with the chunk size that produced them, or remove those '
+            f'chunks, or set BABELDOC_FORCE_RESPLIT=1 to replace the manifest '
+            f'anyway.'
+        )
+
+rows = ['index\tfirst_page\tlast_page\tpath']
+for index, (first, last) in new_ranges.items():
+    path = chunk_dir / f'chunk-{index:03d}-pages-{first}-{last}.pdf'
     if not path.exists():
         out = fitz.open()
-        out.insert_pdf(src, from_page=start, to_page=end - 1)
+        out.insert_pdf(src, from_page=first - 1, to_page=last - 1)
         out.save(path, garbage=4, deflate=True)
         out.close()
-    rows.append(f'{index}\t{start + 1}\t{end}\t{path}')
+    rows.append(f'{index}\t{first}\t{last}\t{path}')
 manifest.write_text('\n'.join(rows) + '\n', encoding='utf-8')
 print(f'Prepared {len(rows) - 1} chunks from {src.page_count} pages.')
 PY
   print "Manifest: $MANIFEST"
 }
+
 
 translate() {
   local target_index=${1:-}
@@ -223,6 +270,12 @@ translate() {
     else
       prompt_args=()
     fi
+    local -a placeholder_args
+    if [[ -n ${BABELDOC_MAX_RICH_TEXT_PLACEHOLDERS:-} ]]; then
+      placeholder_args=(--max-rich-text-placeholders "$BABELDOC_MAX_RICH_TEXT_PLACEHOLDERS")
+    else
+      placeholder_args=()
+    fi
     local toc_layout_adapter=${BABELDOC_TOC_LAYOUT_ADAPTER:-auto}
     (
       cd "$ROOT_DIR"
@@ -230,6 +283,7 @@ translate() {
         --files "$chunk" \
         "${language_args[@]}" "${prompt_args[@]}" \
         --toc-layout-adapter "$toc_layout_adapter" \
+        "${placeholder_args[@]}" \
         --qps 1 --pool-max-workers 1 --max-pages-per-part 0 --no-auto-extract-glossary \
         "${cache_args[@]}" \
         --output "$chunk_output" --working-dir "$chunk_work"

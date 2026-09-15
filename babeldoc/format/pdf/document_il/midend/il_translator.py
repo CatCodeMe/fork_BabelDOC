@@ -573,6 +573,39 @@ class ILTranslator:
             right_placeholder_regex_pattern,
         )
 
+    def _composition_needs_placeholder(
+        self,
+        composition: PdfParagraphComposition,
+        paragraph: PdfParagraph,
+        page_font_map: dict[str, PdfFont] | None,
+    ) -> bool:
+        """Whether one styled run needs a placeholder pair to survive translation.
+
+        A run needs no placeholder when its style matches the paragraph's base
+        style, when only the size differs within the drop-cap range, or when it
+        differs only by a font that maps to the same output font. Everything else
+        has to be delimited so the translated sentence can be restyled.
+        """
+        run = getattr(composition, "pdf_same_style_characters", None)
+        if run is None:
+            return False
+        if is_same_style(run.pdf_style, paragraph.pdf_style):
+            return False
+        if is_same_style_except_size(run.pdf_style, paragraph.pdf_style):
+            return False
+        if not is_same_style_except_font(run.pdf_style, paragraph.pdf_style):
+            return True
+        if not page_font_map:
+            return True
+        try:
+            fonta = self.font_mapper.map(page_font_map[run.pdf_style.font_id], "1")
+            fontb = self.font_mapper.map(
+                page_font_map[paragraph.pdf_style.font_id], "1"
+            )
+        except KeyError:
+            return True
+        return not (fonta and fontb and fonta.font_id == fontb.font_id)
+
     def get_translate_input(
         self,
         paragraph: PdfParagraph,
@@ -642,6 +675,28 @@ class ILTranslator:
                 self.translation_config.disable_rich_text_translate
             )
 
+        # Decide once, before building anything. The original in-loop check
+        # returned early the moment the count crossed the limit, so the number it
+        # logged was always the limit plus one and said nothing about how many
+        # placeholders the paragraph actually needed.
+        required = sum(
+            1
+            for composition in paragraph.pdf_paragraph_composition
+            if self._composition_needs_placeholder(
+                composition, paragraph, page_font_map
+            )
+        )
+        if (
+            not disable_rich_text_translate
+            and required > self.translation_config.max_rich_text_placeholders
+        ):
+            logger.warning(
+                f"Too many placeholders ({required}) in paragraph[{paragraph.debug_id}] "
+                f"(limit {self.translation_config.max_rich_text_placeholders}), "
+                "disabling rich text translation for this paragraph",
+            )
+            disable_rich_text_translate = True
+
         placeholder_id = 1
         placeholders = []
         chars = []
@@ -666,38 +721,8 @@ class ILTranslator:
                     chars.extend(composition.pdf_same_style_characters.pdf_character)
                     continue
 
-                fonta = self.font_mapper.map(
-                    page_font_map[
-                        composition.pdf_same_style_characters.pdf_style.font_id
-                    ],
-                    "1",
-                )
-                fontb = self.font_mapper.map(
-                    page_font_map[paragraph.pdf_style.font_id],
-                    "1",
-                )
-                if (
-                    # 样式和段落基准样式一致，无需占位符
-                    is_same_style(
-                        composition.pdf_same_style_characters.pdf_style,
-                        paragraph.pdf_style,
-                    )
-                    # 字号差异在 0.7-1.3 之间，可能是首字母变大效果，无需占位符
-                    or is_same_style_except_size(
-                        composition.pdf_same_style_characters.pdf_style,
-                        paragraph.pdf_style,
-                    )
-                    or (
-                        # 除了字体以外样式都和基准一样，并且字体都映射到同一个字体。无需占位符
-                        is_same_style_except_font(
-                            composition.pdf_same_style_characters.pdf_style,
-                            paragraph.pdf_style,
-                        )
-                        and fonta
-                        and fontb
-                        and fonta.font_id == fontb.font_id
-                    )
-                    # or len(composition.pdf_same_style_characters.pdf_character) == 1
+                if not self._composition_needs_placeholder(
+                    composition, paragraph, page_font_map
                 ):
                     chars.extend(composition.pdf_same_style_characters.pdf_character)
                     continue
@@ -720,14 +745,6 @@ class ILTranslator:
                     f"Paragraph: {paragraph}. ",
                 )
                 return None
-
-            # 如果占位符数量超过阈值，且未禁用富文本翻译，则递归调用并禁用富文本翻译
-            if len(placeholders) > 40 and not disable_rich_text_translate:
-                logger.warning(
-                    f"Too many placeholders ({len(placeholders)}) in paragraph[{paragraph.debug_id}], "
-                    "disabling rich text translation for this paragraph",
-                )
-                return self.get_translate_input(paragraph, page_font_map, True)
 
         text = get_char_unicode_string(chars)
         translate_input = self.TranslateInput(text, placeholders, paragraph.pdf_style)

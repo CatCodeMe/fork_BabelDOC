@@ -182,7 +182,15 @@ def create_parser():
     )
     translation_group.add_argument(
         "--toc-layout-adapter",
-        choices=("auto", "generic", "now-publishers", "oreilly", "manning", "traction", "off"),
+        choices=(
+            "auto",
+            "generic",
+            "now-publishers",
+            "oreilly",
+            "manning",
+            "traction",
+            "off",
+        ),
         default="auto",
         help="Recover numbered table-of-contents rows before translation; use a named publisher profile only when needed.",
     )
@@ -206,6 +214,18 @@ def create_parser():
         "--disable-rich-text-translate",
         action="store_true",
         help="Disable rich text translation (may help improve compatibility with some PDFs)",
+    )
+    translation_group.add_argument(
+        "--max-rich-text-placeholders",
+        type=int,
+        default=400,
+        help=(
+            "Translate a paragraph as plain text when its inline styling would "
+            "need more than this many placeholder pairs (default: 400). Raising "
+            "it preserves inline styling in denser paragraphs at the cost of "
+            "more output tokens, and of more chances for the model to mangle a "
+            "placeholder."
+        ),
     )
     translation_group.add_argument(
         "--enhance-compatibility",
@@ -712,6 +732,7 @@ async def main():
             skip_clean=args.skip_clean,
             dual_translate_first=args.dual_translate_first,
             disable_rich_text_translate=args.disable_rich_text_translate,
+            max_rich_text_placeholders=args.max_rich_text_placeholders,
             enhance_compatibility=args.enhance_compatibility,
             use_alternating_pages_dual=args.use_alternating_pages_dual,
             report_interval=args.report_interval,

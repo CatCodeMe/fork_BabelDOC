@@ -182,6 +182,7 @@ class TranslationConfig:
         skip_clean: bool = False,
         dual_translate_first: bool = False,
         disable_rich_text_translate: bool = False,
+        max_rich_text_placeholders: int = 400,
         enhance_compatibility: bool = False,
         report_interval: float = 0.1,
         min_text_length: int = 5,
@@ -268,6 +269,12 @@ class TranslationConfig:
         self.disable_rich_text_translate = (
             disable_rich_text_translate or enhance_compatibility
         )
+        # A paragraph whose inline styling needs more placeholder pairs than this
+        # is translated as plain text: the styled runs are emitted inline with no
+        # markers, so the styling of that one paragraph is lost but nothing else
+        # changes. See ILTranslator.get_translate_input for why the limit exists
+        # and what it costs.
+        self.max_rich_text_placeholders = max_rich_text_placeholders
 
         self.report_interval = report_interval
         self.min_text_length = min_text_length
