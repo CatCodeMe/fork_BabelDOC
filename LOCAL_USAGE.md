@@ -44,6 +44,8 @@ BABELDOC_SYSTEM_PROMPT_FILE="$PWD/prompts/en-zh-technical.txt" \
 | `BABELDOC_MONO=1` | Also merge a full-book mono PDF (off by default) |
 | `BABELDOC_TRANSLATE_OUTLINE=0` | Keep source-language bookmarks |
 | `BABELDOC_STAGE_FINAL=0` | Skip the staged delivery and `handoff.json` |
+| `BABELDOC_CLEAN_AFTER_MERGE=1` | Clean the book's working state once the delivery is staged |
+| `BABELDOC_KEEP_CHUNK_SCRATCH=1` | Keep babeldoc's per-chunk intermediates for debugging |
 
 ## Long books: chunked, parallel, resumable
 
@@ -96,6 +98,47 @@ output/final/<queue-id>--<book>/
 
 `handoff.json` is consumed by the `zotero-library-curator` skill; do not
 hand-edit it.
+
+## Working state, and cleaning it up
+
+`work/` is babeldoc's scratch, not an output location. It holds three things:
+
+| Path | Content | Needed for |
+| --- | --- | --- |
+| `work/input-chunks/<book>/manifest.tsv` | the chunk list | `merge`, `one`, `translate` |
+| `work/input-chunks/<book>/chunk-*.pdf` | the split input PDFs | re-translating one chunk |
+| `work/chunks/<book>/chunk-*/` | `run.log`, `translate_tracking.json`, babeldoc's own scratch | diagnosis |
+
+Each chunk leaves behind 65-80 MB of transient intermediates, an order of
+magnitude more than the chunk's own output, which is why this tree used to reach
+several GB. They are now deleted as each chunk finishes. `translate_tracking.json`
+is kept on purpose: it is the evidence for diagnosing a TOC segmentation
+failure.
+
+```zsh
+# One book: drop its scratch and split inputs
+./translate-chunks.zsh clean "/absolute/path/book.pdf"
+
+# Every book that already has a delivery under output/final/
+./translate-chunks.zsh clean --staged
+```
+
+Both keep `manifest.tsv`, so `merge` still rebuilds the aggregate without
+re-translating, and both keep `output/chunks/` and the staged delivery. Only a
+*retranslation* needs the split PDFs back, and `prepare` recreates them with no
+API calls. Books without a staged delivery are reported and left alone, because
+their working state may be the only reason a retry is cheap.
+
+To have this happen on its own once a delivery is staged:
+
+```zsh
+BABELDOC_CLEAN_AFTER_MERGE=1 ./translate-chunks.zsh merge "/absolute/path/book.pdf"
+```
+
+Safe to delete at any time, for any book: everything under `work/`. Resume does
+not depend on it: `translate()` decides a chunk is finished by looking for
+`*.dual.pdf` under `output/chunks/<book>/chunk-*/`. And `work/` never holds a
+deliverable -- `find work -name '*.dual.pdf'` returns nothing.
 
 ## Short documents
 
