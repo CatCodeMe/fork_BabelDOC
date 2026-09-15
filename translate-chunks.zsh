@@ -30,6 +30,10 @@ Usage:
 
 prepare  Create local PDFs of at most BABELDOC_CHUNK_SIZE physical pages each (default: 50).
 test     Translate exactly one prepared chunk by its index (for example 1).
+clean    Remove this book's babeldoc scratch and split inputs. Keeps the
+         manifest, output/chunks/ and any staged delivery.
+clean --staged
+         Sweep every book that already has a delivery under output/final/.
 run      Translate prepared chunks sequentially. Completed chunks are skipped.
 parallel Translate uncompleted chunks in batches, then merge. Default: 3 simultaneous chunks.
 merge    Combine completed chunk PDFs into one full dual PDF and one full mono PDF.
@@ -54,7 +58,73 @@ Environment overrides:
   BABELDOC_FINAL_ROOT           Where reviewed deliverables are staged
                                 (default: output/final).
   BABELDOC_STAGE_FINAL=0        Skip the staged delivery and handoff.json.
+  BABELDOC_CLEAN_AFTER_MERGE=1  Clean this book's working state right after the
+                                staged delivery is written.
+  BABELDOC_KEEP_CHUNK_SCRATCH=1 Keep babeldoc's per-chunk intermediates for
+                                debugging instead of deleting them.
 EOF
+}
+
+# babeldoc writes 65-80 MB of transient intermediates per chunk under its
+# working directory -- an order of magnitude more than the finished chunk -- and
+# never removes them. One 673-page book left 3.2 GB behind, which is how a 4 GB
+# work/ tree accumulated across a dozen finished books.
+#
+# translate_tracking.json is deliberately kept: it is the evidence used to
+# diagnose a TOC segmentation failure, so it must survive until delivery.
+# Set BABELDOC_KEEP_CHUNK_SCRATCH=1 to keep the scratch for a debugging run.
+strip_chunk_scratch() {
+  local chunk_work=$1
+  [[ ${BABELDOC_KEEP_CHUNK_SCRATCH:-0} = 1 ]] && return 0
+  [[ -d "$chunk_work" ]] || return 0
+  find "$chunk_work" -type f \
+    \( -name 'temp_subset_*.pdf' \
+       -o -name 'watermarked_temp_input.pdf' \
+       -o -name 'mig_toc_temp.pdf' \
+       -o -name 'input.pdf' \) -delete 2>/dev/null
+  return 0
+}
+
+# Remove a book's working state but keep everything that is either resumable or
+# already delivered: output/chunks/<book>/ still holds the translated chunks,
+# manifest.tsv still lets `merge` rebuild the aggregate without re-translating,
+# and output/final/ holds the reviewed deliverable.
+clean_book() {
+  local freed=0
+  [[ -d "$BOOK_WORK" ]] && freed=$(( freed + $(du -sm "$BOOK_WORK" | cut -f1) ))
+  rm -rf "$BOOK_WORK"
+  if [[ -d "$CHUNK_DIR" ]]; then
+    freed=$(( freed + $(du -sm "$CHUNK_DIR" | cut -f1) ))
+    find "$CHUNK_DIR" -maxdepth 1 -name 'chunk-*.pdf' -delete 2>/dev/null
+  fi
+  print "Cleaned $SAFE_NAME (${freed} MB)."
+  print "Kept: $MANIFEST, $BOOK_OUTPUT, and any staged delivery under $FINAL_ROOT."
+  print "Re-run 'prepare' before retranslating a chunk; 'merge' still works as is."
+}
+
+# Sweep every book that already has a staged delivery. Books without one are
+# reported and left alone, because their work state may be the only reason a
+# retry is cheap.
+clean_staged() {
+  local freed=0 kept=0 name
+  if [[ ! -d "$WORK_ROOT" ]]; then
+    print "No working state at $WORK_ROOT."
+    return 0
+  fi
+  for d in "$WORK_ROOT"/*/; do
+    name=${d:t}
+    [[ "$name" = "parallel-logs" ]] && continue
+    [[ -n "$(find "$FINAL_ROOT" -maxdepth 1 -type d -name "*--$name" -print -quit 2>/dev/null)" ]] || {
+      print "  kept    $name (no staged delivery)"
+      (( kept += 1 ))
+      continue
+    }
+    freed=$(( freed + $(du -sm "$d" | cut -f1) ))
+    rm -rf "$d"
+    [[ -d "$INPUT_ROOT/$name" ]] && find "$INPUT_ROOT/$name" -maxdepth 1 -name 'chunk-*.pdf' -delete 2>/dev/null
+    print "  cleaned $name"
+  done
+  print "\nRemoved ${freed} MB of working state; kept $kept book(s) without a staged delivery."
 }
 
 [[ -f "$CONFIG_FILE" ]] || {
@@ -64,6 +134,14 @@ EOF
 }
 [[ $# -ge 2 ]] || { usage >&2; exit 2; }
 MODE=$1
+
+# `clean --staged` is a whole-tree sweep and takes no source PDF, so it has to
+# run before the per-book path derivation below.
+if [[ "$MODE" = "clean" && "${2:-}" = "--staged" ]]; then
+  clean_staged
+  exit 0
+fi
+
 SOURCE_PDF=${2:A}
 [[ -f "$SOURCE_PDF" ]] || { print -u2 "PDF not found: $SOURCE_PDF"; exit 1; }
 [[ "$CHUNK_SIZE" =~ '^[1-9][0-9]*$' ]] || { print -u2 "BABELDOC_CHUNK_SIZE must be a positive integer."; exit 2; }
@@ -119,6 +197,7 @@ translate() {
     chunk_log="$chunk_work/run.log"
     if [[ ${BABELDOC_FORCE_RERUN:-0} != 1 && -n "$(find "$chunk_output" -maxdepth 1 -type f -name '*.dual.pdf' -size +0c -print -quit 2>/dev/null)" ]]; then
       print "Skip completed chunk $index ($first-$last)."
+      strip_chunk_scratch "$chunk_work"
       continue
     fi
     mkdir -p "$chunk_output" "$chunk_work"
@@ -160,6 +239,7 @@ translate() {
       print -u2 "Chunk $index failed; stop here. Fix it and rerun the same command to resume."
       return "$result"
     fi
+    strip_chunk_scratch "$chunk_work"
   done < "$MANIFEST"
   if [[ -n "$target_index" ]]; then
     print "\nTest chunk $target_index finished. Output root: $BOOK_OUTPUT"
@@ -334,6 +414,8 @@ print(f'toc entries    : {payload["toc_entries"]}')
 print(f'internal links : {payload["internal_links"]}')
 PY
 
+  [[ ${BABELDOC_CLEAN_AFTER_MERGE:-0} = 1 ]] && clean_book
+
   print "Staged delivery: $final_dir"
   print "  deliverable  : $final_pdf"
   print "  evidence     : $final_dir/handoff.json"
@@ -355,5 +437,6 @@ case "$MODE" in
   parallel) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; parallel_translate ;;
   merge) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; merge_outputs ;;
   all) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; prepare; translate; merge_outputs ;;
+  clean) [[ $# -eq 2 ]] || { usage >&2; exit 2; }; clean_book ;;
   *) usage >&2; exit 2 ;;
 esac
