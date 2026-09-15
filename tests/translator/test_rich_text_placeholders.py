@@ -75,3 +75,14 @@ def test_unpaired_internal_style_marker_is_removed_from_visible_text():
     result = parser.parse_translate_output(input_text, "译文{{bdoc_style_1}}")
 
     assert result[0].pdf_same_style_unicode_characters.unicode == "译文"
+
+
+def test_hallucinated_style_marker_is_removed_without_source_style():
+    parser = _parser_with_style_patterns()
+    input_text = ILTranslator.TranslateInput("source", [], PdfStyle())
+
+    result = parser.parse_translate_output(
+        input_text, "译文{{bdoc_style_1}}一致性模型{{/bdoc_style}}"
+    )
+
+    assert result[0].pdf_same_style_unicode_characters.unicode == "译文一致性模型"

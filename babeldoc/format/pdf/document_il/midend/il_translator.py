@@ -780,6 +780,11 @@ class ILTranslator:
 
         # 如果没有占位符，直接返回整个文本
         if not input_text.placeholders:
+            # The model may still hallucinate an internal rich-text token even
+            # when this source paragraph contained no styled run. Such tokens
+            # have no style to restore and must never become visible PDF text.
+            output = self._style_left_placeholder_pattern.sub("", output)
+            output = self._style_right_placeholder_pattern.sub("", output)
             comp = PdfParagraphComposition()
             comp.pdf_same_style_unicode_characters = PdfSameStyleUnicodeCharacters()
             comp.pdf_same_style_unicode_characters.unicode = output
